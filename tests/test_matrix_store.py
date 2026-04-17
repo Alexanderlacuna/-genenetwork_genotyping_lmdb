@@ -518,6 +518,405 @@ class TestErrorHandling:
         store.close()
 
 
+class TestFullSnapshotMetadata:
+    """Test that metadata is written on full snapshots when GenotypeMatrix is provided."""
+
+    @pytest.fixture
+    def temp_db(self):
+        """Create a temporary database directory."""
+        temp_dir = tempfile.mkdtemp()
+        yield temp_dir
+        shutil.rmtree(temp_dir, ignore_errors=True)
+
+    @pytest.fixture
+    def base_matrix(self):
+        """Create base genotype matrix with rich metadata."""
+        return GenotypeMatrix(
+            matrix=np.zeros((5, 5), dtype=np.uint8),
+            markers=["m1", "m2", "m3", "m4", "m5"],
+            samples=["s1", "s2", "s3", "s4", "s5"],
+            chromosomes=["1", "1", "2", "2", "X"],
+            positions=[1.0, 2.0, 3.0, 4.0, 5.0],
+            allele_map={"B": 0, "D": 1},
+            founders=["B", "D"],
+            het_code=2,
+            unk_code=3,
+            dataset_name="TestDS",
+            cross_type="riset",
+            mat_allele="B",
+            pat_allele="D"
+        )
+
+    def test_full_snapshot_with_genotype_matrix_writes_metadata(self, temp_db, base_matrix):
+        """store_update with GenotypeMatrix + full snapshot should write :metadata."""
+        store = MatrixStore(temp_db)
+        store.FULL_SNAPSHOT_INTERVAL = 1  # Force full snapshot on every update
+
+        store.store_initial("test_ds", base_matrix)
+
+        # Create updated GenotypeMatrix with different values but same metadata
+        updated = GenotypeMatrix(
+            matrix=np.ones((5, 5), dtype=np.uint8),
+            markers=["m1", "m2", "m3", "m4", "m5"],
+            samples=["s1", "s2", "s3", "s4", "s5"],
+            chromosomes=["1", "1", "2", "2", "X"],
+            positions=[10.0, 20.0, 30.0, 40.0, 50.0],
+            allele_map={"B": 0, "D": 1},
+            founders=["B", "D"],
+            het_code=2,
+            unk_code=3,
+            dataset_name="TestDS",
+            cross_type="riset",
+            mat_allele="B",
+            pat_allele="D"
+        )
+
+        v2 = store.store_update("test_ds", updated, "test", "v2 with metadata")
+        assert v2.storage_type == "full"
+
+        # Reconstruct v2 — should get metadata from v2 full snapshot
+        reconstructed = store.get_matrix("test_ds", 2)
+        assert reconstructed.markers == updated.markers
+        assert reconstructed.samples == updated.samples
+        assert reconstructed.positions == updated.positions
+        assert reconstructed.chromosomes == updated.chromosomes
+        assert reconstructed.allele_map == updated.allele_map
+        assert reconstructed.founders == updated.founders
+        assert reconstructed.cross_type == updated.cross_type
+
+        store.close()
+
+    def test_full_snapshot_with_numpy_array_no_metadata(self, temp_db, base_matrix):
+        """store_update with numpy array + full snapshot should not write :metadata."""
+        store = MatrixStore(temp_db)
+        store.FULL_SNAPSHOT_INTERVAL = 1  # Force full snapshot
+
+        store.store_initial("test_ds", base_matrix)
+
+        # Pass plain numpy array (as CLI currently does)
+        new_matrix = np.ones((5, 5), dtype=np.uint8)
+        v2 = store.store_update("test_ds", new_matrix, "test", "v2 no metadata")
+        assert v2.storage_type == "full"
+
+        # Reconstruct v2 — should fallback to empty metadata (backward compatible)
+        reconstructed = store.get_matrix("test_ds", 2)
+        np.testing.assert_array_equal(reconstructed.matrix, new_matrix)
+        assert reconstructed.markers == []  # Fallback empty
+        assert reconstructed.samples == []  # Fallback empty
+
+        store.close()
+
+    def test_delta_does_not_write_metadata(self, temp_db, base_matrix):
+        """store_update with delta should not write or overwrite :metadata."""
+        store = MatrixStore(temp_db)
+        store.FULL_SNAPSHOT_INTERVAL = 10  # Force delta
+
+        store.store_initial("test_ds", base_matrix)
+
+        updated = GenotypeMatrix(
+            matrix=np.zeros((5, 5), dtype=np.uint8),
+            markers=["new_m1", "new_m2", "new_m3", "new_m4", "new_m5"],
+            samples=["new_s1", "new_s2", "new_s3", "new_s4", "new_s5"],
+            chromosomes=["1", "1", "2", "2", "X"],
+            positions=[100.0, 200.0, 300.0, 400.0, 500.0],
+            allele_map={"A": 0, "C": 1},
+            founders=["A", "C"],
+            het_code=2,
+            unk_code=3,
+            dataset_name="UpdatedDS",
+            cross_type="hs"
+        )
+
+        # Make a small change so delta is used
+        updated.matrix[2, 2] = 1
+
+        v2 = store.store_update("test_ds", updated, "test", "v2 delta")
+        assert v2.storage_type == "delta"
+
+        # Reconstruct v2 — metadata should come from v1, not v2
+        reconstructed = store.get_matrix("test_ds", 2)
+        assert reconstructed.markers == base_matrix.markers  # From v1
+        assert reconstructed.samples == base_matrix.samples  # From v1
+        assert reconstructed.allele_map == base_matrix.allele_map  # From v1
+
+        store.close()
+
+    def test_scheduled_full_snapshot_metadata(self, temp_db, base_matrix):
+        """Scheduled full snapshot at interval should write :metadata when GenotypeMatrix provided."""
+        store = MatrixStore(temp_db)
+        store.FULL_SNAPSHOT_INTERVAL = 3  # v4 will be full
+
+        store.store_initial("test_ds", base_matrix)
+
+        # v2, v3: deltas with numpy array
+        for i in range(2, 4):
+            new_matrix = np.full((5, 5), i, dtype=np.uint8)
+            store.store_update("test_ds", new_matrix, "test", f"v{i}")
+
+        # v4: scheduled full with GenotypeMatrix
+        updated = GenotypeMatrix(
+            matrix=np.full((5, 5), 4, dtype=np.uint8),
+            markers=["v4_m1", "v4_m2", "v4_m3", "v4_m4", "v4_m5"],
+            samples=["v4_s1", "v4_s2", "v4_s3", "v4_s4", "v4_s5"],
+            chromosomes=["1", "2", "3", "4", "5"],
+            positions=[10.0, 20.0, 30.0, 40.0, 50.0],
+            allele_map={"A": 0, "T": 1},
+            founders=["A", "T"],
+            het_code=2,
+            unk_code=3,
+            dataset_name="V4Dataset",
+            cross_type="f2"
+        )
+
+        v4 = store.store_update("test_ds", updated, "test", "v4 full")
+        assert v4.storage_type == "full"
+
+        # Reconstruct v4 — should get metadata from v4 full snapshot
+        reconstructed = store.get_matrix("test_ds", 4)
+        assert reconstructed.markers == updated.markers
+        assert reconstructed.samples == updated.samples
+        assert reconstructed.chromosomes == updated.chromosomes
+        assert reconstructed.positions == updated.positions
+        assert reconstructed.allele_map == updated.allele_map
+        assert reconstructed.founders == updated.founders
+        assert reconstructed.dataset_name == updated.dataset_name
+        assert reconstructed.cross_type == updated.cross_type
+
+        # v5: delta — metadata should still come from v4
+        v5_matrix = np.full((5, 5), 5, dtype=np.uint8)
+        store.store_update("test_ds", v5_matrix, "test", "v5 delta")
+
+        recon_v5 = store.get_matrix("test_ds", 5)
+        assert recon_v5.markers == updated.markers  # From v4
+
+        store.close()
+
+
+class TestFastVerification:
+    """Test fast verify (chain linkage only, no payload hashing)."""
+
+    @pytest.fixture
+    def temp_db(self):
+        """Create a temporary database directory."""
+        temp_dir = tempfile.mkdtemp()
+        yield temp_dir
+        shutil.rmtree(temp_dir, ignore_errors=True)
+
+    @pytest.fixture
+    def sample_matrix(self):
+        """Create sample matrix."""
+        return GenotypeMatrix(
+            matrix=np.zeros((5, 5), dtype=np.uint8),
+            markers=[f"m{i}" for i in range(5)],
+            samples=[f"s{i}" for i in range(5)],
+            chromosomes=["1"] * 5,
+            positions=[float(i) for i in range(5)],
+            allele_map={"B": 0, "D": 1},
+            founders=["B", "D"],
+            het_code=2,
+            unk_code=3
+        )
+
+    def test_fast_verify_valid_dataset(self, temp_db, sample_matrix):
+        """Fast verify should pass for valid dataset."""
+        store = MatrixStore(temp_db)
+
+        store.store_initial("test_ds", sample_matrix)
+        new_matrix = np.ones((5, 5), dtype=np.uint8)
+        store.store_update("test_ds", new_matrix, "test", "v2")
+
+        valid, errors = store.verify_dataset_fast("test_ds")
+
+        assert valid is True
+        assert len(errors) == 0
+
+        store.close()
+
+    def test_fast_verify_nonexistent_dataset(self, temp_db):
+        """Fast verify should fail for non-existent dataset."""
+        store = MatrixStore(temp_db)
+
+        valid, errors = store.verify_dataset_fast("nonexistent")
+
+        assert valid is False
+        assert len(errors) > 0
+
+        store.close()
+
+    def test_fast_verify_detects_broken_chain(self, temp_db, sample_matrix):
+        """Fast verify should detect broken prev_hash linkage."""
+        import json
+        store = MatrixStore(temp_db)
+
+        store.store_initial("test_ds", sample_matrix)
+        new_matrix = np.ones((5, 5), dtype=np.uint8)
+        store.store_update("test_ds", new_matrix, "test", "v2")
+
+        # Tamper with v2's prev_hash
+        with store.env.begin(write=True) as txn:
+            matrix_db = store.env.open_db(store.DB_MATRIX_HISTORY, txn=txn, create=False)
+            key = store._make_history_key("test_ds", 2)
+            value = txn.get(key, db=matrix_db)
+            data = json.loads(value.decode('utf-8'))
+            data['prev_matrix_hash'] = 'tampered_hash_12345'
+            txn.put(key, json.dumps(data).encode('utf-8'), db=matrix_db)
+
+        # Full verify: catches both chain break AND hash mismatch
+        valid_full, errors_full = store.verify_dataset("test_ds")
+        assert valid_full is False
+        assert any("Hash chain broken" in e for e in errors_full)
+        assert any("Hash mismatch" in e for e in errors_full)
+
+        # Fast verify: catches only chain break
+        valid_fast, errors_fast = store.verify_dataset_fast("test_ds")
+        assert valid_fast is False
+        assert any("Hash chain broken" in e for e in errors_fast)
+        assert not any("Hash mismatch" in e for e in errors_fast)
+
+        store.close()
+
+    def test_fast_verify_missed_payload_corruption(self, temp_db, sample_matrix):
+        """Fast verify should miss payload-only corruption (by design)."""
+        store = MatrixStore(temp_db)
+
+        store.store_initial("test_ds", sample_matrix)
+        new_matrix = np.ones((5, 5), dtype=np.uint8)
+        store.store_update("test_ds", new_matrix, "test", "v2")
+
+        # Tamper with v2's payload only
+        with store.env.begin(write=True) as txn:
+            matrix_db = store.env.open_db(store.DB_MATRIX_HISTORY, txn=txn, create=False)
+            key = store._make_history_key("test_ds", 2)
+            payload_key = key + b':payload'
+            payload = txn.get(payload_key, db=matrix_db)
+            tampered = payload[:10] + bytes([payload[10] ^ 0xFF]) + payload[11:]
+            txn.put(payload_key, tampered, db=matrix_db)
+
+        # Fast verify: misses payload-only corruption
+        valid_fast, errors_fast = store.verify_dataset_fast("test_ds")
+        assert valid_fast is True
+        assert len(errors_fast) == 0
+
+        # Full verify: catches payload corruption
+        valid_full, errors_full = store.verify_dataset("test_ds")
+        assert valid_full is False
+        assert any("Hash mismatch" in e for e in errors_full)
+
+        store.close()
+
+    def test_fast_verify_matches_full_on_valid_chain(self, temp_db, sample_matrix):
+        """Both verify modes should agree on valid chains."""
+        store = MatrixStore(temp_db)
+
+        store.store_initial("test_ds", sample_matrix)
+
+        for i in range(2, 8):
+            new_matrix = np.full((5, 5), i, dtype=np.uint8)
+            store.store_update("test_ds", new_matrix, "test", f"v{i}")
+
+        valid_full, _ = store.verify_dataset("test_ds")
+        valid_fast, _ = store.verify_dataset_fast("test_ds")
+
+        assert valid_full is True
+        assert valid_fast is True
+        assert valid_full == valid_fast
+
+        store.close()
+
+
+class TestFriendlyErrorMessages:
+    """Test that error messages are actionable and helpful."""
+
+    @pytest.fixture
+    def temp_db(self):
+        """Create a temporary database directory."""
+        temp_dir = tempfile.mkdtemp()
+        yield temp_dir
+        shutil.rmtree(temp_dir, ignore_errors=True)
+
+    @pytest.fixture
+    def sample_matrix(self):
+        """Create sample matrix."""
+        return GenotypeMatrix(
+            matrix=np.zeros((5, 5), dtype=np.uint8),
+            markers=[f"m{i}" for i in range(5)],
+            samples=[f"s{i}" for i in range(5)],
+            chromosomes=["1"] * 5,
+            positions=[float(i) for i in range(5)],
+            allele_map={"B": 0, "D": 1},
+            founders=["B", "D"],
+            het_code=2,
+            unk_code=3
+        )
+
+    def test_missing_dataset_error_suggests_list_datasets(self, temp_db):
+        """Missing dataset error should suggest using list-datasets."""
+        store = MatrixStore(temp_db)
+
+        with pytest.raises(ValueError) as exc_info:
+            store.get_current_version("nonexistent")
+
+        msg = str(exc_info.value)
+        assert "list-datasets" in msg or "list_datasets" in msg
+        assert "not found" in msg.lower()
+
+    def test_missing_dataset_error_lists_available(self, temp_db, sample_matrix):
+        """Missing dataset error should list available datasets."""
+        store = MatrixStore(temp_db)
+        store.store_initial("BXD", sample_matrix)
+        store.store_initial("HSRats", sample_matrix)
+
+        with pytest.raises(ValueError) as exc_info:
+            store.get_current_version("MissingDS")
+
+        msg = str(exc_info.value)
+        assert "BXD" in msg
+        assert "HSRats" in msg
+        assert "MissingDS" in msg
+
+    def test_reconstruct_missing_version_suggests_verify(self, temp_db, sample_matrix):
+        """Reconstruction error should suggest using verify."""
+        store = MatrixStore(temp_db)
+        store.store_initial("test_ds", sample_matrix)
+
+        # Delete the full snapshot to simulate corruption
+        import json
+        with store.env.begin(write=True) as txn:
+            matrix_db = store.env.open_db(store.DB_MATRIX_HISTORY, txn=txn, create=False)
+            key = store._make_history_key("test_ds", 1)
+            txn.delete(key + b':payload', db=matrix_db)
+
+        with pytest.raises(ValueError) as exc_info:
+            store.get_matrix("test_ds", 1)
+
+        msg = str(exc_info.value)
+        assert "verify" in msg.lower()
+        assert "missing" in msg.lower()
+
+    def test_reconstruct_missing_delta_suggests_verify(self, temp_db, sample_matrix):
+        """Missing delta error should explain which versions are needed."""
+        store = MatrixStore(temp_db)
+        store.FULL_SNAPSHOT_INTERVAL = 10  # Force delta for v2
+        store.store_initial("test_ds", sample_matrix)
+
+        new_matrix = sample_matrix.matrix.copy()
+        new_matrix[0, 0] = 1
+        store.store_update("test_ds", new_matrix, "test", "v2")
+
+        # Delete the delta payload to simulate corruption
+        with store.env.begin(write=True) as txn:
+            matrix_db = store.env.open_db(store.DB_MATRIX_HISTORY, txn=txn, create=False)
+            key = store._make_history_key("test_ds", 2)
+            txn.delete(key + b':payload', db=matrix_db)
+
+        with pytest.raises(ValueError) as exc_info:
+            store.get_matrix("test_ds", 2)
+
+        msg = str(exc_info.value)
+        assert "delta" in msg.lower()
+        assert "verify" in msg.lower()
+
+
 class TestMatrixVersionDataclass:
     """Test MatrixVersion dataclass."""
 

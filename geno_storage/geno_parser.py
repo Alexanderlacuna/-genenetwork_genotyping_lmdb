@@ -62,19 +62,23 @@ class GenoParser:
                 line = line.strip()
                 if not line:
                     continue
-                    
-                if line.startswith('#') and ':' in line:
-                    content = line[1:].strip()
-                    key, value = content.split(':', 1)
-                    self.file_info[key.strip()] = value.strip()
+
+                if line.startswith('#'):
+                    # Skip all # comments. Only parse key:value pairs if present.
+                    if ':' in line:
+                        content = line[1:].strip()
+                        key, value = content.split(':', 1)
+                        self.file_info[key.strip()] = value.strip()
+                    continue
                 elif line.startswith('@') and ':' in line:
                     content = line[1:]
                     key, value = content.split(':', 1)
                     self.metadata[key.strip()] = value.strip()
+                    continue
                 else:
                     self.header = line.split('\t')
                     break
-            
+
             self.raw_lines = [l.strip() for l in f if l.strip()]
     
     def _detect_encoding(self) -> Dict:

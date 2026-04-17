@@ -284,10 +284,148 @@ Chr\tLocus\tcM\tMb\tS1\tS2
     def test_missing_values(self, missing_values_file):
         """Should handle missing values (-)."""
         result = parse_genotype_file(missing_values_file)
-        
+
         # '-' should become unknown (U/3)
         assert result.matrix[0, 1] == result.unk_code
         assert result.matrix[1, 0] == result.unk_code
+
+
+class TestCommentHandling:
+    """Test parsing of various comment styles."""
+
+    @pytest.fixture
+    def comment_without_colon(self):
+        """Create file with # comment lacking colon."""
+        content = """# HS Rat Genotype File
+# Description: 8-founder Heterogeneous Stock rat cross
+# Source: http://www.genenetwork.org
+@name:HSRats1
+@type:hs
+@mat:A
+@pat:H
+@het:H
+@unk:U
+Chr\tLocus\tcM\tMb\tHS1\tHS2\tHS3\tHS4\tHS5\tHS6\tHS7\tHS8
+1\trs001\t1.0\t5.0\tA\tB\tC\tD\tA\tE\tF\tG
+1\trs002\t2.0\t6.0\tD\tE\tF\tG\tH\tA\tB\tC
+1\trs003\t3.0\t7.0\tH\tA\tB\tC\tD\tE\tF\tG
+2\trs004\t0.5\t12.0\tB\tC\tD\tE\tF\tG\tH\tA
+"""
+        with tempfile.NamedTemporaryFile(mode='w', suffix='.geno', delete=False) as f:
+            f.write(content)
+            temp_path = f.name
+        yield temp_path
+        os.unlink(temp_path)
+
+    @pytest.fixture
+    def mixed_comments(self):
+        """Create file with mixed comment styles."""
+        content = """# File name: test.geno
+# This is a plain comment without colon
+# Another plain comment
+# Description: Test file with mixed comments
+@name:MixedTest
+@type:riset
+@mat:B
+@pat:D
+Chr\tLocus\tcM\tMb\tS1\tS2\tS3
+1\trs1\t1.0\t5.0\tB\tD\tH
+1\trs2\t2.0\t6.0\tD\tH\tU
+2\trs3\t0.0\t10.0\tH\tB\tD
+"""
+        with tempfile.NamedTemporaryFile(mode='w', suffix='.geno', delete=False) as f:
+            f.write(content)
+            temp_path = f.name
+        yield temp_path
+        os.unlink(temp_path)
+
+    @pytest.fixture
+    def many_plain_comments(self):
+        """Create file with many plain comments before header."""
+        content = """# File entered in GN database on Dec 19, 2018 by Arthur Centeno
+# Coordinates of Markers and Assembly
+# Genotypes information line without colon
+# Material and Cases description
+# Breeding information
+# Errors and Corrections note
+# Funding information
+@name:ManyComments
+@type:riset
+@mat:B
+@pat:D
+@het:H
+@unk:U
+Chr\tLocus\tcM\tMb\tS1\tS2
+1\trs1\t1.0\t5.0\tB\tD
+1\trs2\t2.0\t6.0\tD\tH
+"""
+        with tempfile.NamedTemporaryFile(mode='w', suffix='.geno', delete=False) as f:
+            f.write(content)
+            temp_path = f.name
+        yield temp_path
+        os.unlink(temp_path)
+
+    def test_comment_without_colon(self, comment_without_colon):
+        """Should skip # comments without colon, not treat as header."""
+        result = parse_genotype_file(comment_without_colon)
+
+        # Should NOT have picked up "# HS Rat Genotype File" as samples
+        assert result.samples == ["HS1", "HS2", "HS3", "HS4", "HS5", "HS6", "HS7", "HS8"]
+        assert result.markers == ["rs001", "rs002", "rs003", "rs004"]
+        assert result.matrix.shape == (4, 8)
+        assert result.cross_type == "hs"
+        assert result.dataset_name == "HSRats1"
+
+    def test_mixed_comments(self, mixed_comments):
+        """Should handle mix of key:value and plain comments."""
+        result = parse_genotype_file(mixed_comments)
+
+        assert result.samples == ["S1", "S2", "S3"]
+        assert result.markers == ["rs1", "rs2", "rs3"]
+        assert result.matrix.shape == (3, 3)
+        assert result.cross_type == "riset"
+        # Should have parsed key:value comments
+        assert "File name" in result.file_metadata
+        assert "Description" in result.file_metadata
+
+    def test_many_plain_comments(self, many_plain_comments):
+        """Should skip many consecutive plain comments."""
+        result = parse_genotype_file(many_plain_comments)
+
+        assert result.samples == ["S1", "S2"]
+        assert result.markers == ["rs1", "rs2"]
+        assert result.matrix.shape == (2, 2)
+        assert result.cross_type == "riset"
+        assert result.dataset_name == "ManyComments"
+
+    def test_real_bxd_file(self):
+        """Should parse real BXD.geno file correctly."""
+        bxd_path = Path('/home/kabui/genotype_files/genotype/BXD.geno')
+        if not bxd_path.exists():
+            pytest.skip("BXD.geno not found")
+
+        result = parse_genotype_file(bxd_path)
+
+        # Should have ~7320 markers and ~198 samples
+        assert result.matrix.shape[0] > 7000
+        assert result.matrix.shape[1] > 100
+        assert result.samples[0] == "BXD1"
+        assert result.founders == ["B", "D"]
+        assert result.cross_type == "riset"
+
+    def test_real_hsrat_file(self):
+        """Should parse real HSRats1.geno file correctly."""
+        hs_path = Path('/home/kabui/genotype_files/genotype/HSRats1.geno')
+        if not hs_path.exists():
+            pytest.skip("HSRats1.geno not found")
+
+        result = parse_genotype_file(hs_path)
+
+        # Should have ~11 markers and 8 samples
+        assert result.matrix.shape == (11, 8)
+        assert result.samples == ["HS1", "HS2", "HS3", "HS4", "HS5", "HS6", "HS7", "HS8"]
+        assert len(result.founders) >= 8
+        assert result.cross_type == "hs"
 
 
 class TestGenotypeMatrixMethods:

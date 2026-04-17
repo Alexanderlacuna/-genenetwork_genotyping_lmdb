@@ -323,6 +323,142 @@ class TestDeltaEncodingIntegration:
         store.close()
 
 
+class TestCLIWorkflow:
+    """Test CLI-like workflow: parse .geno -> pass full GenotypeMatrix -> verify metadata preserved."""
+
+    @pytest.fixture
+    def temp_db(self):
+        """Create a temporary database directory."""
+        temp_dir = tempfile.mkdtemp()
+        yield temp_dir
+        shutil.rmtree(temp_dir, ignore_errors=True)
+
+    @pytest.fixture
+    def geno_v1_file(self):
+        """Create initial genotype file."""
+        content = """# File name: test.geno
+@name:TestDataset
+@type:riset
+@mat:B
+@pat:D
+@het:H
+@unk:U
+Chr\tLocus\tcM\tMb\tS1\tS2\tS3
+1\trs001\t1.0\t5.0\tB\tB\tD
+1\trs002\t2.0\t6.0\tD\tH\tU
+2\trs003\t0.0\t10.0\tH\tU\tB
+"""
+        with tempfile.NamedTemporaryFile(mode='w', suffix='.geno', delete=False) as f:
+            f.write(content)
+            temp_path = f.name
+        yield temp_path
+        os.unlink(temp_path)
+
+    @pytest.fixture
+    def geno_v2_file(self):
+        """Create updated genotype file with different metadata."""
+        content = """# File name: test_v2.geno
+@name:UpdatedDataset
+@type:riset
+@mat:A
+@pat:T
+@het:H
+@unk:U
+Chr\tLocus\tcM\tMb\tS1\tS2\tS3\tS4
+1\trs001\t10.0\t50.0\tA\tA\tT\tA
+1\trs002\t20.0\t60.0\tT\tH\tU\tT
+1\trs003\t30.0\t70.0\tH\tU\tA\tH
+2\trs004\t40.0\t80.0\tA\tT\tT\tH
+"""
+        with tempfile.NamedTemporaryFile(mode='w', suffix='.geno', delete=False) as f:
+            f.write(content)
+            temp_path = f.name
+        yield temp_path
+        os.unlink(temp_path)
+
+    def test_cli_update_preserves_metadata_on_full_snapshot(self, temp_db, geno_v1_file, geno_v2_file):
+        """Simulate CLI: parse .geno, pass full GenotypeMatrix, verify metadata on full snapshot."""
+        store = MatrixStore(temp_db)
+        store.FULL_SNAPSHOT_INTERVAL = 1  # Force full snapshot
+
+        # v1: Initial import
+        genotype_v1 = parse_genotype_file(geno_v1_file)
+        store.store_initial("test_dataset", genotype_v1)
+
+        # v2: Update with new .geno file — pass full GenotypeMatrix (like CLI now does)
+        genotype_v2 = parse_genotype_file(geno_v2_file)
+        v2 = store.store_update("test_dataset", genotype_v2, "cli_user", "Updated with new markers")
+
+        assert v2.storage_type == "full"
+
+        # Reconstruct v2 — metadata should come from v2, not v1
+        reconstructed = store.get_matrix("test_dataset", 2)
+        assert reconstructed.matrix.shape == (4, 4)  # 4 markers, 4 samples
+        assert reconstructed.markers == ["rs001", "rs002", "rs003", "rs004"]
+        assert reconstructed.samples == ["S1", "S2", "S3", "S4"]
+        assert reconstructed.chromosomes == ["1", "1", "1", "2"]
+        assert reconstructed.positions == [10.0, 20.0, 30.0, 40.0]
+        assert reconstructed.allele_map == {"A": 0, "T": 1}
+        assert reconstructed.founders == ["A", "T"]
+        assert reconstructed.cross_type == "riset"
+        assert reconstructed.dataset_name == "UpdatedDataset"
+
+        store.close()
+
+    def test_cli_update_metadata_on_delta(self, temp_db, geno_v1_file):
+        """Simulate CLI: delta update should reuse metadata from previous full snapshot."""
+        store = MatrixStore(temp_db)
+        store.FULL_SNAPSHOT_INTERVAL = 10  # Force delta
+
+        # v1: Initial import
+        genotype_v1 = parse_genotype_file(geno_v1_file)
+        store.store_initial("test_dataset", genotype_v1)
+
+        # v2: Small change — pass full GenotypeMatrix, but delta will be used
+        genotype_v2 = parse_genotype_file(geno_v1_file)
+        genotype_v2.matrix[0, 0] = 1  # Small change
+
+        v2 = store.store_update("test_dataset", genotype_v2, "cli_user", "Small correction")
+        assert v2.storage_type == "delta"
+
+        # Reconstruct v2 — metadata should come from v1
+        reconstructed = store.get_matrix("test_dataset", 2)
+        assert reconstructed.markers == genotype_v1.markers
+        assert reconstructed.samples == genotype_v1.samples
+        assert reconstructed.allele_map == genotype_v1.allele_map
+        assert reconstructed.founders == genotype_v1.founders
+
+        store.close()
+
+    def test_cli_update_with_shape_change(self, temp_db, geno_v1_file, geno_v2_file):
+        """Simulate CLI: shape change forces full snapshot, metadata from new .geno preserved."""
+        store = MatrixStore(temp_db)
+
+        # v1: Initial import (3x3)
+        genotype_v1 = parse_genotype_file(geno_v1_file)
+        store.store_initial("test_dataset", genotype_v1)
+
+        # v2: Different shape (4x4) — forces full snapshot
+        genotype_v2 = parse_genotype_file(geno_v2_file)
+        v2 = store.store_update("test_dataset", genotype_v2, "cli_user", "Added marker and sample")
+
+        assert v2.storage_type == "full"
+
+        # Reconstruct v2 — metadata from new .geno
+        reconstructed = store.get_matrix("test_dataset", 2)
+        assert reconstructed.matrix.shape == (4, 4)
+        assert reconstructed.markers == ["rs001", "rs002", "rs003", "rs004"]
+        assert reconstructed.samples == ["S1", "S2", "S3", "S4"]
+        assert reconstructed.cross_type == "riset"
+
+        # Verify hash chain intact
+        valid, errors = store.verify_dataset("test_dataset")
+        assert valid is True
+        assert len(errors) == 0
+
+        store.close()
+
+
 class TestErrorRecovery:
     """Test error handling and recovery."""
 

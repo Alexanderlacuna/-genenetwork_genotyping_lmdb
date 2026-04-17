@@ -230,6 +230,10 @@ class MatrixStore:
             txn.put(key, canonical_json(version.to_dict()), db=matrix_db)
             txn.put(key + b':payload', payload, db=matrix_db)
             
+            # Write metadata on full snapshots when GenotypeMatrix is provided
+            if storage_type == 'full' and isinstance(new_matrix, GenotypeMatrix):
+                txn.put(key + b':metadata', canonical_json(self._encode_metadata(new_matrix)), db=matrix_db)
+            
             txn.put(self._make_info_key(dataset_id), canonical_json({
                 'current_version': new_version_num,
                 'current_hash': matrix_hash,
@@ -273,11 +277,29 @@ class MatrixStore:
         
         full_version = self._find_nearest_full_snapshot(dataset_id, target_version)
         if full_version is None:
-            raise ValueError(f"No full snapshot for {dataset_id} at or before v{target_version}")
+            raise ValueError(
+                f"Cannot reconstruct version {target_version} of dataset '{dataset_id}': "
+                f"no full snapshot found.\n"
+                f"  - This usually means the dataset was never imported, or all full snapshots were deleted.\n"
+                f"  - The ledger may be corrupted (try 'verify' to check)."
+            )
         
         version_data = self.get_version(dataset_id, full_version)
         if not version_data:
-            raise ValueError(f"Missing full snapshot at v{full_version}")
+            raise ValueError(
+                f"Cannot reconstruct version {target_version} of dataset '{dataset_id}': "
+                f"full snapshot at v{full_version} is referenced but missing from storage.\n"
+                f"  - The ledger may be corrupted (try 'verify' to check).\n"
+                f"  - If you have an external backup, restore it."
+            )
+
+        if version_data.payload is None:
+            raise ValueError(
+                f"Cannot reconstruct version {target_version} of dataset '{dataset_id}': "
+                f"payload for full snapshot at v{full_version} is missing.\n"
+                f"  - The ledger may be corrupted (try 'verify' to check).\n"
+                f"  - If you have an external backup, restore it."
+            )
         
         # Get metadata from full snapshot
         metadata = self._get_metadata(dataset_id, full_version)
@@ -287,8 +309,23 @@ class MatrixStore:
         for v in range(full_version + 1, target_version + 1):
             delta_version = self.get_version(dataset_id, v)
             if not delta_version:
-                raise ValueError(f"Missing delta at v{v}")
-            
+                raise ValueError(
+                    f"Cannot reconstruct version {target_version} of dataset '{dataset_id}': "
+                    f"delta at v{v} is missing.\n"
+                    f"  - The nearest full snapshot is at v{full_version}.\n"
+                    f"  - Deltas from v{full_version + 1} to v{target_version} are required.\n"
+                    f"  - The ledger may be corrupted (try 'verify' to check)."
+                )
+
+            if delta_version.payload is None:
+                raise ValueError(
+                    f"Cannot reconstruct version {target_version} of dataset '{dataset_id}': "
+                    f"payload for delta at v{v} is missing.\n"
+                    f"  - The nearest full snapshot is at v{full_version}.\n"
+                    f"  - Deltas from v{full_version + 1} to v{target_version} are required.\n"
+                    f"  - The ledger may be corrupted (try 'verify' to check)."
+                )
+
             _, delta_data = self.delta_encoder.decode(delta_version.payload)
             delta_type = delta_version.payload[0]
             current_matrix = self.delta_encoder.apply_delta(current_matrix, delta_data, delta_type)
@@ -348,7 +385,18 @@ class MatrixStore:
             geno_db = self._get_db(txn, self.DB_GENOTYPES)
             value = txn.get(self._make_info_key(dataset_id), db=geno_db)
             if not value:
-                raise ValueError(f"Dataset {dataset_id} not found")
+                # Friendly error: suggest what the user can do
+                all_datasets = []
+                cursor = txn.cursor(db=geno_db)
+                for key, _ in cursor:
+                    all_datasets.append(key.decode('utf-8'))
+                available = f" Available datasets: {', '.join(sorted(all_datasets))}" if all_datasets else " No datasets exist in this store."
+                raise ValueError(
+                    f"Dataset '{dataset_id}' not found in this store.{available}\n"
+                    f"  - Check the dataset ID spelling (case-sensitive).\n"
+                    f"  - Use 'list-datasets' to see all available datasets.\n"
+                    f"  - Use 'import-genotype' to add a new dataset."
+                )
             
             data = json.loads(value.decode('utf-8'))
             return data['current_version'], data['current_hash']
@@ -373,32 +421,60 @@ class MatrixStore:
         return sorted(versions, key=lambda x: x['matrix_version'])
     
     def verify_dataset(self, dataset_id: str) -> Tuple[bool, List[str]]:
-        """Verify hash chain."""
+        """Verify hash chain by recomputing all hashes from payloads."""
         errors = []
         versions = self.list_versions(dataset_id)
-        
+
         if not versions:
             return False, ["No versions found"]
-        
+
         prev_hash = None
         for i, v in enumerate(versions):
             if v['matrix_version'] != i + 1:
                 errors.append(f"Version mismatch at {i}: expected {i+1}, got {v['matrix_version']}")
-            
+
             if i == 0:
                 if v['prev_matrix_hash'] is not None:
                     errors.append("v1 should have no prev_hash")
             else:
                 if v['prev_matrix_hash'] != prev_hash:
                     errors.append(f"Hash chain broken at v{v['matrix_version']}")
-            
+
             version_data = self.get_version(dataset_id, v['matrix_version'])
             computed_hash = compute_matrix_hash(version_data.payload, version_data.prev_matrix_hash)
             if computed_hash != v['matrix_hash']:
                 errors.append(f"Hash mismatch at v{v['matrix_version']}")
-            
+
             prev_hash = v['matrix_hash']
-        
+
+        return len(errors) == 0, errors
+
+    def verify_dataset_fast(self, dataset_id: str) -> Tuple[bool, List[str]]:
+        """Fast verify: check hash chain linkage without payload recomputation.
+
+        Detects missing versions and broken chain links.
+        Does NOT detect corrupted payloads (use verify_dataset for that).
+        """
+        errors = []
+        versions = self.list_versions(dataset_id)
+
+        if not versions:
+            return False, ["No versions found"]
+
+        prev_hash = None
+        for i, v in enumerate(versions):
+            if v['matrix_version'] != i + 1:
+                errors.append(f"Version mismatch at {i}: expected {i+1}, got {v['matrix_version']}")
+
+            if i == 0:
+                if v['prev_matrix_hash'] is not None:
+                    errors.append("v1 should have no prev_hash")
+            else:
+                if v['prev_matrix_hash'] != prev_hash:
+                    errors.append(f"Hash chain broken at v{v['matrix_version']}")
+
+            prev_hash = v['matrix_hash']
+
         return len(errors) == 0, errors
     
     def close(self):
