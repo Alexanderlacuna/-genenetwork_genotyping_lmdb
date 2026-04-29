@@ -787,7 +787,7 @@ class TestFastVerification:
         # Tamper with v2's prev_hash
         with store.env.begin(write=True) as txn:
             matrix_db = store.env.open_db(store.DB_MATRIX_HISTORY, txn=txn, create=False)
-            key = store._make_history_key("test_ds", 2)
+            key = store.make_history_key("test_ds", 2)
             value = txn.get(key, db=matrix_db)
             data = json.loads(value.decode('utf-8'))
             data['prev_matrix_hash'] = 'tampered_hash_12345'
@@ -818,7 +818,7 @@ class TestFastVerification:
         # Tamper with v2's payload only
         with store.env.begin(write=True) as txn:
             matrix_db = store.env.open_db(store.DB_MATRIX_HISTORY, txn=txn, create=False)
-            key = store._make_history_key("test_ds", 2)
+            key = store.make_history_key("test_ds", 2)
             payload_key = key + b':payload'
             payload = txn.get(payload_key, db=matrix_db)
             tampered = payload[:10] + bytes([payload[10] ^ 0xFF]) + payload[11:]
@@ -916,7 +916,7 @@ class TestFriendlyErrorMessages:
         import json
         with store.env.begin(write=True) as txn:
             matrix_db = store.env.open_db(store.DB_MATRIX_HISTORY, txn=txn, create=False)
-            key = store._make_history_key("test_ds", 1)
+            key = store.make_history_key("test_ds", 1)
             txn.delete(key + b':payload', db=matrix_db)
 
         with pytest.raises(ValueError) as exc_info:
@@ -939,7 +939,7 @@ class TestFriendlyErrorMessages:
         # Delete the delta payload to simulate corruption
         with store.env.begin(write=True) as txn:
             matrix_db = store.env.open_db(store.DB_MATRIX_HISTORY, txn=txn, create=False)
-            key = store._make_history_key("test_ds", 2)
+            key = store.make_history_key("test_ds", 2)
             txn.delete(key + b':payload', db=matrix_db)
 
         with pytest.raises(ValueError) as exc_info:

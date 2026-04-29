@@ -115,7 +115,7 @@ def list_datasets(lmdb_path):
     """List all datasets in the LMDB store."""
     with MatrixStore(lmdb_path, read_only=True) as store:
         with store.env.begin() as txn:
-            geno_db = store._get_db(txn, store.DB_GENOTYPES)
+            geno_db = store.get_db(txn, store.DB_GENOTYPES)
             cursor = txn.cursor(db=geno_db)
             
             datasets = []
@@ -199,7 +199,7 @@ def verify_dataset(dataset_id, lmdb_path, fast):
             try:
                 all_ds = []
                 with store.env.begin() as txn:
-                    geno_db = store._get_db(txn, store.DB_GENOTYPES)
+                    geno_db = store.get_db(txn, store.DB_GENOTYPES)
                     cursor = txn.cursor(db=geno_db)
                     for key, _ in cursor:
                         all_ds.append(key.decode('utf-8'))
@@ -382,9 +382,9 @@ def stats_dataset(dataset_id, lmdb_path):
         full_payload = 0
         delta_payload = 0
         with store.env.begin() as txn:
-            matrix_db = store._get_db(txn, store.DB_MATRIX_HISTORY)
+            matrix_db = store.get_db(txn, store.DB_MATRIX_HISTORY)
             for v in versions:
-                key = store._make_history_key(dataset_id, v['matrix_version'])
+                key = store.make_history_key(dataset_id, v['matrix_version'])
                 payload = txn.get(key + b':payload', db=matrix_db)
                 if payload:
                     size = len(payload)
@@ -423,9 +423,9 @@ def stats_dataset(dataset_id, lmdb_path):
         click.echo(f"{'Ver':<5} {'Type':<8} {'Size (KB)':<12} {'Author':<15}")
         click.echo("-" * 45)
         with store.env.begin() as txn:
-            matrix_db = store._get_db(txn, store.DB_MATRIX_HISTORY)
+            matrix_db = store.get_db(txn, store.DB_MATRIX_HISTORY)
             for v in versions:
-                key = store._make_history_key(dataset_id, v['matrix_version'])
+                key = store.make_history_key(dataset_id, v['matrix_version'])
                 payload = txn.get(key + b':payload', db=matrix_db)
                 size_kb = len(payload) / 1024 if payload else 0
                 click.echo(f"{v['matrix_version']:<5} {v['storage_type']:<8} {size_kb:<12.2f} {v['author']:<15}")

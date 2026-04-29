@@ -1,7 +1,7 @@
 """Core data models for genotype storage.
 
-These dataclasses represent the immutable facts at the center of the
-architecture. All other modules depend on these types.
+These dataclasses represent immutable facts at the center of the
+architecture. They contain NO behavior — data is inert.
 """
 
 from dataclasses import dataclass, field
@@ -9,9 +9,9 @@ from typing import Dict, List, Optional, Any
 import numpy as np
 
 
-@dataclass
+@dataclass(frozen=True)
 class GenotypeMatrix:
-    """Genotype matrix with metadata — immutable data."""
+    """Genotype matrix with metadata — immutable data, no behavior."""
     matrix: np.ndarray
     markers: List[str]
     samples: List[str]
@@ -27,29 +27,10 @@ class GenotypeMatrix:
     mat_allele: Optional[str] = None
     pat_allele: Optional[str] = None
     genome_build: str = ""
-    file_metadata: Dict = field(default_factory=dict)
-
-    def __post_init__(self):
-        # Freeze the numpy array to prevent accidental mutation.
-        # Copy-on-write: callers must explicitly copy if they need to modify.
-        if self.matrix.flags.writeable:
-            self.matrix = self.matrix.copy()
-            self.matrix.flags.writeable = False
-
-    def get_allele_frequencies(self) -> Dict[int, int]:
-        """Count allele codes."""
-        unique, counts = np.unique(self.matrix, return_counts=True)
-        return dict(zip(unique.tolist(), counts.tolist()))
-
-    def decode_row(self, row_idx: int) -> List[str]:
-        """Decode numeric codes to symbols."""
-        reverse_map = {v: k for k, v in self.allele_map.items()}
-        reverse_map[self.het_code] = 'H'
-        reverse_map[self.unk_code] = 'U'
-        return [reverse_map.get(code, '?') for code in self.matrix[row_idx]]
+    file_metadata: Dict = field(default_factory=dict, hash=False)
 
 
-@dataclass
+@dataclass(frozen=True)
 class MatrixVersion:
     """Matrix version entry — immutable fact about an event."""
     dataset_id: str

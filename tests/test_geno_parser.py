@@ -10,6 +10,7 @@ import os
 
 from geno_storage.geno_parser import GenoParser, parse_genotype_file
 from geno_storage.models import GenotypeMatrix
+from geno_storage.matrix_ops import get_allele_frequencies
 
 
 class TestBXDStyleParsing:
@@ -447,7 +448,7 @@ class TestGenotypeMatrixMethods:
             unk_code=3
         )
         
-        freqs = matrix.get_allele_frequencies()
+        freqs = get_allele_frequencies(matrix)
         assert freqs[0] == 1  # One 'A'
         assert freqs[1] == 2  # Two 'B's
         assert freqs[2] == 1  # One 'H'

@@ -1,4 +1,8 @@
-"""LMDB storage for versioned genotype matrices."""
+"""LMDB storage for versioned genotype matrices.
+
+Actions (I/O) are isolated in this module. Calculations are extracted
+to module-level functions where possible.
+"""
 
 import json
 from datetime import datetime
@@ -12,90 +16,105 @@ from .delta import DeltaEncoder
 from .models import GenotypeMatrix, MatrixVersion
 
 
+def encode_metadata(genotype_matrix: GenotypeMatrix) -> Dict:
+    """Encode GenotypeMatrix metadata to dict.
+
+    Pure calculation: no side effects, no I/O.
+    """
+    return {
+        'markers': genotype_matrix.markers,
+        'samples': genotype_matrix.samples,
+        'chromosomes': genotype_matrix.chromosomes,
+        'cM': genotype_matrix.cM,
+        'Mb': genotype_matrix.Mb,
+        'allele_map': genotype_matrix.allele_map,
+        'founders': genotype_matrix.founders,
+        'het_code': genotype_matrix.het_code,
+        'unk_code': genotype_matrix.unk_code,
+        'dataset_name': genotype_matrix.dataset_name,
+        'cross_type': genotype_matrix.cross_type,
+        'mat_allele': genotype_matrix.mat_allele,
+        'pat_allele': genotype_matrix.pat_allele,
+    }
+
+
+def decode_metadata(data: Dict) -> Dict:
+    """Decode metadata dict (handle missing fields for backwards compat).
+
+    Pure calculation: no side effects, no I/O.
+    """
+    # Backwards compat: old stores used 'positions' for a single column
+    cm = data.get('cM')
+    mb = data.get('Mb')
+    if cm is None and mb is None and 'positions' in data:
+        old_positions = data.get('positions', [])
+        cm = old_positions
+        mb = old_positions
+
+    return {
+        'markers': data.get('markers', []),
+        'samples': data.get('samples', []),
+        'chromosomes': data.get('chromosomes', []),
+        'cM': cm if cm is not None else [],
+        'Mb': mb if mb is not None else [],
+        'allele_map': data.get('allele_map', {}),
+        'founders': data.get('founders', []),
+        'het_code': data.get('het_code', 2),
+        'unk_code': data.get('unk_code', 3),
+        'dataset_name': data.get('dataset_name', ''),
+        'cross_type': data.get('cross_type', ''),
+        'mat_allele': data.get('mat_allele'),
+        'pat_allele': data.get('pat_allele'),
+    }
+
+
 class MatrixStore:
-    """LMDB storage for versioned matrices."""
-    
+    """LMDB storage for versioned matrices.
+
+    Actions are methods on this class. Calculations are either
+    module-level functions or methods that delegate to them.
+    """
+
     DB_MATRIX_HISTORY = b'matrix_history'
     DB_GENOTYPES = b'genotypes'
     DB_INFO = b'info'
     FULL_SNAPSHOT_INTERVAL = 10
-    
+
     def __init__(self, db_path: Union[str, Path], map_size: int = 100 * 1024 * 1024 * 1024, read_only: bool = False):
         self.db_path = Path(db_path)
         self.db_path.mkdir(parents=True, exist_ok=True)
-        
+
         open_kwargs = {'map_size': map_size, 'max_dbs': 10}
         if read_only:
             open_kwargs['readonly'] = True
-            
+
         self.env = lmdb.open(str(self.db_path), **open_kwargs)
         self.delta_encoder = DeltaEncoder()
-        self._read_only = read_only
-        
+        self.read_only = read_only
+
         with self.env.begin(write=not read_only) as txn:
             self.env.open_db(self.DB_MATRIX_HISTORY, txn=txn, create=not read_only)
             self.env.open_db(self.DB_GENOTYPES, txn=txn, create=not read_only)
             self.env.open_db(self.DB_INFO, txn=txn, create=not read_only)
-    
-    def _get_db(self, txn, db_name: bytes):
+
+    def get_db(self, txn, db_name: bytes):
         """Get DB handle for transaction."""
-        return self.env.open_db(db_name, txn=txn, create=not self._read_only)
-    
-    def _make_history_key(self, dataset_id: str, version: int) -> bytes:
+        return self.env.open_db(db_name, txn=txn, create=not self.read_only)
+
+    def make_history_key(self, dataset_id: str, version: int) -> bytes:
+        """Make LMDB key for a version entry."""
         return f"{dataset_id}:{version:010d}".encode('utf-8')
-    
-    def _make_info_key(self, dataset_id: str) -> bytes:
+
+    def make_info_key(self, dataset_id: str) -> bytes:
+        """Make LMDB key for info entry."""
         return dataset_id.encode('utf-8')
-    
-    def _should_store_full_snapshot(self, version: int) -> bool:
+
+    def should_store_full_snapshot(self, version: int) -> bool:
+        """Check if this version should be a full snapshot."""
         if version == 1:
             return True
         return (version - 1) % self.FULL_SNAPSHOT_INTERVAL == 0
-    
-    def _encode_metadata(self, genotype_matrix: GenotypeMatrix) -> Dict:
-        """Encode GenotypeMatrix metadata to dict."""
-        return {
-            'markers': genotype_matrix.markers,
-            'samples': genotype_matrix.samples,
-            'chromosomes': genotype_matrix.chromosomes,
-            'cM': genotype_matrix.cM,
-            'Mb': genotype_matrix.Mb,
-            'allele_map': genotype_matrix.allele_map,
-            'founders': genotype_matrix.founders,
-            'het_code': genotype_matrix.het_code,
-            'unk_code': genotype_matrix.unk_code,
-            'dataset_name': genotype_matrix.dataset_name,
-            'cross_type': genotype_matrix.cross_type,
-            'mat_allele': genotype_matrix.mat_allele,
-            'pat_allele': genotype_matrix.pat_allele,
-        }
-    
-    def _decode_metadata(self, data: Dict) -> Dict:
-        """Decode metadata dict (handle missing fields for backwards compat)."""
-        # Backwards compat: old stores used 'positions' for a single column
-        cm = data.get('cM')
-        mb = data.get('Mb')
-        if cm is None and mb is None and 'positions' in data:
-            old_positions = data.get('positions', [])
-            cm = old_positions
-            mb = old_positions
 
-        return {
-            'markers': data.get('markers', []),
-            'samples': data.get('samples', []),
-            'chromosomes': data.get('chromosomes', []),
-            'cM': cm if cm is not None else [],
-            'Mb': mb if mb is not None else [],
-            'allele_map': data.get('allele_map', {}),
-            'founders': data.get('founders', []),
-            'het_code': data.get('het_code', 2),
-            'unk_code': data.get('unk_code', 3),
-            'dataset_name': data.get('dataset_name', ''),
-            'cross_type': data.get('cross_type', ''),
-            'mat_allele': data.get('mat_allele'),
-            'pat_allele': data.get('pat_allele'),
-        }
-    
     def store_initial(
         self,
         dataset_id: str,
@@ -129,29 +148,29 @@ class MatrixStore:
             ncols=genotype_matrix.matrix.shape[1],
             dtype=str(genotype_matrix.matrix.dtype)
         )
-        
+
         with self.env.begin(write=True) as txn:
-            matrix_db = self._get_db(txn, self.DB_MATRIX_HISTORY)
-            geno_db = self._get_db(txn, self.DB_GENOTYPES)
-            info_db = self._get_db(txn, self.DB_INFO)
-            
-            key = self._make_history_key(dataset_id, 1)
+            matrix_db = self.get_db(txn, self.DB_MATRIX_HISTORY)
+            geno_db = self.get_db(txn, self.DB_GENOTYPES)
+            info_db = self.get_db(txn, self.DB_INFO)
+
+            key = self.make_history_key(dataset_id, 1)
             txn.put(key, canonical_json(version.to_dict()), db=matrix_db)
             txn.put(key + b':payload', payload, db=matrix_db)
-            txn.put(key + b':metadata', canonical_json(self._encode_metadata(genotype_matrix)), db=matrix_db)
-            
-            txn.put(self._make_info_key(dataset_id), canonical_json({
+            txn.put(key + b':metadata', canonical_json(encode_metadata(genotype_matrix)), db=matrix_db)
+
+            txn.put(self.make_info_key(dataset_id), canonical_json({
                 'current_version': 1,
                 'current_hash': matrix_hash,
                 'nrows': version.nrows,
                 'ncols': version.ncols,
                 'dtype': version.dtype
             }), db=geno_db)
-            
-            self._update_info_head(txn, dataset_id, version, info_db)
-        
+
+            self.update_info_head(txn, dataset_id, version, info_db)
+
         return version
-    
+
     def store_update(
         self,
         dataset_id: str,
@@ -175,7 +194,7 @@ class MatrixStore:
         else:
             new_matrix_data = new_matrix
 
-        if self._should_store_full_snapshot(new_version_num):
+        if self.should_store_full_snapshot(new_version_num):
             payload = self.delta_encoder.encode_full(new_matrix_data)
             storage_type = 'full'
         else:
@@ -206,81 +225,73 @@ class MatrixStore:
             ncols=new_matrix_data.shape[1],
             dtype=str(new_matrix_data.dtype)
         )
-        
+
         with self.env.begin(write=True) as txn:
-            matrix_db = self._get_db(txn, self.DB_MATRIX_HISTORY)
-            geno_db = self._get_db(txn, self.DB_GENOTYPES)
-            info_db = self._get_db(txn, self.DB_INFO)
-            
-            key = self._make_history_key(dataset_id, new_version_num)
+            matrix_db = self.get_db(txn, self.DB_MATRIX_HISTORY)
+            geno_db = self.get_db(txn, self.DB_GENOTYPES)
+            info_db = self.get_db(txn, self.DB_INFO)
+
+            key = self.make_history_key(dataset_id, new_version_num)
             txn.put(key, canonical_json(version.to_dict()), db=matrix_db)
             txn.put(key + b':payload', payload, db=matrix_db)
-            
+
             # Write metadata on full snapshots when GenotypeMatrix is provided
             if storage_type == 'full' and isinstance(new_matrix, GenotypeMatrix):
-                txn.put(key + b':metadata', canonical_json(self._encode_metadata(new_matrix)), db=matrix_db)
-            
-            txn.put(self._make_info_key(dataset_id), canonical_json({
+                txn.put(key + b':metadata', canonical_json(encode_metadata(new_matrix)), db=matrix_db)
+
+            txn.put(self.make_info_key(dataset_id), canonical_json({
                 'current_version': new_version_num,
                 'current_hash': matrix_hash,
                 'nrows': new_matrix_data.shape[0],
                 'ncols': new_matrix_data.shape[1],
                 'dtype': str(new_matrix_data.dtype)
             }), db=geno_db)
-            
-            self._update_info_head(txn, dataset_id, version, info_db)
-        
+
+            self.update_info_head(txn, dataset_id, version, info_db)
+
         return version
-    
-    def _update_info_head(self, txn, dataset_id: str, version: MatrixVersion, info_db) -> None:
+
+    def update_info_head(self, txn, dataset_id: str, version: MatrixVersion, info_db) -> None:
         """Update HEAD pointer."""
-        info_key = self._make_info_key(dataset_id)
+        info_key = self.make_info_key(dataset_id)
         existing = txn.get(info_key, db=info_db)
         info = json.loads(existing.decode('utf-8')) if existing else {'dataset_id': dataset_id, 'description': '', 'author': ''}
-        
+
         info['current_matrix_version'] = version.matrix_version
         info['current_matrix_hash'] = version.matrix_hash
         info['last_updated'] = version.timestamp
-        
+
         txn.put(info_key, canonical_json(info), db=info_db)
-    
+
     def get_version(self, dataset_id: str, version: int) -> Optional[MatrixVersion]:
         """Get version entry."""
         with self.env.begin() as txn:
-            matrix_db = self._get_db(txn, self.DB_MATRIX_HISTORY)
-            key = self._make_history_key(dataset_id, version)
+            matrix_db = self.get_db(txn, self.DB_MATRIX_HISTORY)
+            key = self.make_history_key(dataset_id, version)
             value = txn.get(key, db=matrix_db)
             if not value:
                 return None
-            
+
             payload = txn.get(key + b':payload', db=matrix_db)
             return MatrixVersion.from_dict(json.loads(value.decode('utf-8')), payload)
-    
-    def get_matrix(self, dataset_id: str, target_version: Optional[int] = None) -> GenotypeMatrix:
-        """Reconstruct matrix with metadata at version.
 
-        Separates planning (calculation), fetching (action), and
-        reconstruction (calculation) into distinct phases.
-        """
+    def get_matrix(self, dataset_id: str, target_version: Optional[int] = None) -> GenotypeMatrix:
+        """Reconstruct matrix with metadata at version."""
         if target_version is None:
             target_version, _ = self.get_current_version(dataset_id)
 
         # Phase 1: Plan — what versions do we need? (calculation)
-        plan = self._reconstruction_plan(dataset_id, target_version)
+        plan = self.reconstruction_plan(dataset_id, target_version)
 
         # Phase 2: Fetch — get payloads from LMDB (action)
-        payloads = self._fetch_payloads(plan)
+        payloads = self.fetch_payloads(plan)
 
         # Phase 3: Reconstruct — assemble matrix (calculation)
-        return self._reconstruct_from_payloads(plan, payloads)
+        return self.reconstruct_from_payloads(plan, payloads)
 
-    def _reconstruction_plan(self, dataset_id: str, target_version: int) -> Dict:
-        """Determine which versions are needed for reconstruction.
-
-        Pure calculation: given version info, return a plan dict.
-        No LMDB I/O — uses get_version which is already tested.
-        """
-        full_version = self._find_nearest_full_snapshot(dataset_id, target_version)
+    def reconstruction_plan(self, dataset_id: str, target_version: int) -> Dict:
+        """Determine which versions are needed for reconstruction."""
+        full_version = self.find_nearest_full_snapshot(dataset_id, target_version)
         if full_version is None:
             raise ValueError(
                 f"Cannot reconstruct version {target_version} of dataset '{dataset_id}': "
@@ -297,11 +308,8 @@ class MatrixStore:
             'needed_versions': needed_versions,
         }
 
-    def _fetch_payloads(self, plan: Dict) -> Dict[int, bytes]:
-        """Fetch all required payloads from LMDB.
-
-        Action: performs I/O, returns payloads keyed by version.
-        """
+    def fetch_payloads(self, plan: Dict) -> Dict[int, bytes]:
+        """Fetch all required payloads from LMDB."""
         dataset_id = plan['dataset_id']
         payloads = {}
 
@@ -329,7 +337,7 @@ class MatrixStore:
 
         return payloads
 
-    def _reconstruct_from_payloads(self, plan: Dict, payloads: Dict[int, bytes]) -> GenotypeMatrix:
+    def reconstruct_from_payloads(self, plan: Dict, payloads: Dict[int, bytes]) -> GenotypeMatrix:
         """Reconstruct GenotypeMatrix from payloads.
 
         Pure calculation: given payloads and plan, assemble matrix.
@@ -340,7 +348,7 @@ class MatrixStore:
         target_version = plan['target_version']
 
         # Get metadata from full snapshot
-        metadata = self._get_metadata(dataset_id, full_version)
+        metadata = self.get_metadata(dataset_id, full_version)
 
         # Decode full snapshot
         _, current_matrix = self.delta_encoder.decode(payloads[full_version])
@@ -368,15 +376,15 @@ class MatrixStore:
             mat_allele=metadata['mat_allele'],
             pat_allele=metadata['pat_allele'],
         )
-    
-    def _get_metadata(self, dataset_id: str, version: int) -> Dict:
+
+    def get_metadata(self, dataset_id: str, version: int) -> Dict:
         """Get metadata for a version."""
         with self.env.begin() as txn:
-            matrix_db = self._get_db(txn, self.DB_MATRIX_HISTORY)
-            key = self._make_history_key(dataset_id, version) + b':metadata'
+            matrix_db = self.get_db(txn, self.DB_MATRIX_HISTORY)
+            key = self.make_history_key(dataset_id, version) + b':metadata'
             value = txn.get(key, db=matrix_db)
             if value:
-                return self._decode_metadata(json.loads(value.decode('utf-8')))
+                return decode_metadata(json.loads(value.decode('utf-8')))
             # Fallback: return empty metadata for backwards compatibility
             return {
                 'markers': [],
@@ -393,20 +401,20 @@ class MatrixStore:
                 'mat_allele': None,
                 'pat_allele': None,
             }
-    
-    def _find_nearest_full_snapshot(self, dataset_id: str, target_version: int) -> Optional[int]:
+
+    def find_nearest_full_snapshot(self, dataset_id: str, target_version: int) -> Optional[int]:
         """Find nearest full snapshot <= target."""
         for v in range(target_version, 0, -1):
             version_data = self.get_version(dataset_id, v)
             if version_data and version_data.storage_type == 'full':
                 return v
         return None
-    
+
     def get_current_version(self, dataset_id: str) -> Tuple[int, str]:
         """Get current version and hash."""
         with self.env.begin() as txn:
-            geno_db = self._get_db(txn, self.DB_GENOTYPES)
-            value = txn.get(self._make_info_key(dataset_id), db=geno_db)
+            geno_db = self.get_db(txn, self.DB_GENOTYPES)
+            value = txn.get(self.make_info_key(dataset_id), db=geno_db)
             if not value:
                 # Friendly error: suggest what the user can do
                 all_datasets = []
@@ -420,15 +428,15 @@ class MatrixStore:
                     f"  - Use 'list-datasets' to see all available datasets.\n"
                     f"  - Use 'import-genotype' to add a new dataset."
                 )
-            
+
             data = json.loads(value.decode('utf-8'))
             return data['current_version'], data['current_hash']
-    
+
     def list_versions(self, dataset_id: str) -> List[Dict]:
         """List all versions."""
         versions = []
         prefix = f"{dataset_id}:".encode('utf-8')
-        
+
         with self.env.begin() as txn:
             db = self.env.open_db(self.DB_MATRIX_HISTORY, txn=txn, create=False)
             cursor = txn.cursor(db=db)
@@ -440,9 +448,9 @@ class MatrixStore:
                     if key.endswith(b':payload') or key.endswith(b':metadata'):
                         continue
                     versions.append(json.loads(value.decode('utf-8')))
-        
+
         return sorted(versions, key=lambda x: x['matrix_version'])
-    
+
     def verify_dataset(self, dataset_id: str) -> Tuple[bool, List[str]]:
         """Verify hash chain by recomputing all hashes from payloads."""
         errors = []
@@ -499,13 +507,13 @@ class MatrixStore:
             prev_hash = v['matrix_hash']
 
         return len(errors) == 0, errors
-    
+
     def close(self):
         self.env.close()
-    
+
     def __enter__(self):
         return self
-    
+
     def __exit__(self, exc_type, exc_val, exc_tb):
         self.close()
         return False
