@@ -67,7 +67,7 @@ Chr\tLocus\tcM\tMb\tBXD1\tBXD2\tBXD3\tBXD4\tBXD5
         print(f"Markers ({len(genotype.markers)}): {genotype.markers}")
         print(f"Samples ({len(genotype.samples)}): {genotype.samples}")
         print(f"Chromosomes: {genotype.chromosomes}")
-        print(f"Positions: {genotype.positions}")
+        print(f"cM: {genotype.cM}, Mb: {genotype.Mb}")
         print(f"Allele map: {genotype.allele_map}")
 
         assert genotype.matrix.shape == (5, 5), f"Expected (5, 5), got {genotype.matrix.shape}"

@@ -28,7 +28,8 @@ def main():
             markers=["rs001", "rs002", "rs003"],
             samples=["BXD1", "BXD2", "BXD5"],
             chromosomes=["1", "1", "2"],
-            positions=[1.5, 2.5, 0.0],
+            cM=[1.5, 2.5, 0.0],
+            Mb=[1.5, 2.5, 0.0],
             allele_map={"B": 0, "D": 1},
             founders=["B", "D"],
             het_code=2,
@@ -57,7 +58,8 @@ def main():
             markers=["rs001", "rs002", "rs003", "rs004"],  # NEW marker added
             samples=["BXD1", "BXD2", "BXD5", "BXD6"],     # NEW sample added
             chromosomes=["1", "1", "2", "X"],
-            positions=[10.0, 20.0, 30.0, 40.0],
+            cM=[10.0, 20.0, 30.0, 40.0],
+            Mb=[10.0, 20.0, 30.0, 40.0],
             allele_map={"A": 0, "T": 1},                   # Different encoding
             founders=["A", "T"],
             het_code=2,
@@ -85,7 +87,7 @@ def main():
 
         recon_v4 = store.get_matrix("BXD", 4)
         print(f"v4: shape={recon_v4.matrix.shape}, markers={recon_v4.markers}, samples={recon_v4.samples}")
-        print(f"     positions={recon_v4.positions}, allele_map={recon_v4.allele_map}")
+        print(f"     cM={recon_v4.cM}, Mb={recon_v4.Mb}, allele_map={recon_v4.allele_map}")
         print(f"     dataset_name={recon_v4.dataset_name}, cross_type={recon_v4.cross_type}")
 
         recon_v5 = store.get_matrix("BXD", 5)

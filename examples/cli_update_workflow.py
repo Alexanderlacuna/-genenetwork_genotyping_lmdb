@@ -96,7 +96,7 @@ Chr\tLocus\tcM\tMb\tBXD1\tBXD2\tBXD3\tBXD5
         print(f"  Shape: {recon_v2.matrix.shape}")
         print(f"  Markers: {recon_v2.markers}")
         print(f"  Samples: {recon_v2.samples}")
-        print(f"  Positions: {recon_v2.positions}")
+        print(f"  cM: {recon_v2.cM}, Mb: {recon_v2.Mb}")
         print(f"  Founders: {recon_v2.founders}")
         print(f"  Cross type: {recon_v2.cross_type}")
 
