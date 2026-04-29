@@ -21,9 +21,9 @@ except ImportError:
     DeltaEncoder = None
 
 try:
-    from .geno_parser import GenoParser
+    from .geno_parser import parse_genotype_file
 except ImportError:
-    GenoParser = None
+    parse_genotype_file = None
 
 try:
     from .matrix_store import MatrixStore
@@ -33,7 +33,6 @@ except ImportError:
 __all__ = [
     'MatrixStore',
     'MatrixVersion',
-    'GenoParser',
     'GenotypeMatrix',
     'DeltaEncoder',
     'canonical_json',

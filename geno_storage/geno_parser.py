@@ -3,11 +3,14 @@
 Refactored to separate actions (file I/O) from calculations
 (encoding detection, data reading). Calculations are pure
 functions with explicit inputs and outputs.
+
+The only action is parse_genotype_file() which opens a file
+and delegates to pure calculations.
 """
 
 from dataclasses import dataclass
 from pathlib import Path
-from typing import Dict, List, Optional, Union
+from typing import Dict, List, Union
 from subprocess import check_output
 
 import numpy as np
@@ -250,32 +253,23 @@ def parse_headers(file_handle) -> ParsedHeader:
     )
 
 
-class GenoParser:
-    """Parse .geno files.
+def count_lines(file_path: Union[str, Path]) -> int:
+    """Count lines in file.
 
-    Thin orchestrator (action layer): opens file, delegates to pure
-    calculations, returns GenotypeMatrix.
+    Action: shell out to wc. Kept as a standalone function.
     """
-
-    def __init__(self, file_path: Union[str, Path]):
-        self.file_path = Path(file_path)
-
-    def parse(self) -> GenotypeMatrix:
-        """Parse file and return GenotypeMatrix."""
-        with open(self.file_path, 'r', encoding='utf-8') as f:
-            parsed = parse_headers(f)
-
-        encoding = detect_encoding(parsed.metadata, parsed.raw_lines)
-        return read_data(parsed, encoding, self.file_path.stem)
-
-    @staticmethod
-    def count_lines(file_path: Union[str, Path]) -> int:
-        """Count lines in file."""
-        result = check_output(['wc', '-l', str(file_path)])
-        return int(result.split()[0])
+    result = check_output(['wc', '-l', str(file_path)])
+    return int(result.split()[0])
 
 
 def parse_genotype_file(file_path: Union[str, Path]) -> GenotypeMatrix:
-    """Parse a genotype file."""
-    parser = GenoParser(file_path)
-    return parser.parse()
+    """Parse a genotype file.
+
+    Action: opens file, delegates to pure calculations, returns data.
+    """
+    path = Path(file_path)
+    with open(path, 'r', encoding='utf-8') as f:
+        parsed = parse_headers(f)
+
+    encoding = detect_encoding(parsed.metadata, parsed.raw_lines)
+    return read_data(parsed, encoding, path.stem)

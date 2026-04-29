@@ -8,7 +8,7 @@ from pathlib import Path
 import tempfile
 import os
 
-from geno_storage.geno_parser import GenoParser, parse_genotype_file
+from geno_storage.geno_parser import parse_genotype_file
 from geno_storage.models import GenotypeMatrix
 from geno_storage.matrix_ops import get_allele_frequencies
 

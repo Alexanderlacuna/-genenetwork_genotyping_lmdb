@@ -9,9 +9,14 @@ from typing import Dict, List, Optional, Any
 import numpy as np
 
 
-@dataclass(frozen=True)
+@dataclass
 class GenotypeMatrix:
-    """Genotype matrix with metadata — immutable data, no behavior."""
+    """Genotype matrix with metadata — immutable data, no behavior.
+
+    The numpy array is copied and frozen on construction to prevent
+    accidental mutation (copy-on-write). Explicitly copy if you need
+    to modify.
+    """
     matrix: np.ndarray
     markers: List[str]
     samples: List[str]
@@ -27,7 +32,15 @@ class GenotypeMatrix:
     mat_allele: Optional[str] = None
     pat_allele: Optional[str] = None
     genome_build: str = ""
-    file_metadata: Dict = field(default_factory=dict, hash=False)
+    file_metadata: Dict = field(default_factory=dict)
+
+    def __post_init__(self):
+        # Copy-on-write: freeze the numpy array to prevent accidental mutation.
+        # Callers must explicitly copy if they need to modify.
+        if self.matrix.flags.writeable:
+            frozen = self.matrix.copy()
+            frozen.flags.writeable = False
+            object.__setattr__(self, 'matrix', frozen)
 
 
 @dataclass(frozen=True)
