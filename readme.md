@@ -21,6 +21,8 @@ python lmdb_matrix.py diff DATASET ./lmdb_store --from 1 --to 2
 python lmdb_matrix.py stats DATASET ./lmdb_store
 ```
 
+**Compression is opt-in.** Use `--compression zlib` on `import-genotype` to enable zlib compression for a store. This setting is fixed at store creation time and applies to all datasets in that store. `update-genotype` reads the compression setting automatically — you never specify it again.
+
 ---
 
 ## Commands
@@ -32,6 +34,11 @@ python lmdb_matrix.py import-genotype file.geno ./lmdb_store \
   --dataset-id "BXD" \
   --author "Arthur Centeno" \
   --reason "Initial import"
+
+# With compression (opt-in, set once at store creation)
+python lmdb_matrix.py import-genotype file.geno ./lmdb_store \
+  --compression zlib \
+  --dataset-id "BXD"
 ```
 
 ### Update (creates new version)
@@ -148,6 +155,17 @@ symbols = genotype.decode_row(0)  # ['B', 'B', 'D', 'D', ...]
 ```
 
 ---
+
+## Compression
+
+Compression is **opt-in** and **set at store creation time** via `--compression zlib` on `import-genotype`.
+
+- Once set, the compression algorithm is stored in LMDB and applies to **all datasets in that store**.
+- `update-genotype` reads the store's compression config automatically — you do **not** pass `--compression` again.
+- Mixed compression within one store is rejected. If a store was created with zlib, all subsequent imports and updates use zlib.
+- Without `--compression`, payloads are stored uncompressed.
+
+The hash chain is computed over the **compressed bytes**, so verification never needs to decompress.
 
 ## Storage Behavior
 
