@@ -96,11 +96,25 @@ class MatrixStore:
             'pat_allele': data.get('pat_allele'),
         }
     
-    def store_initial(self, dataset_id: str, genotype_matrix: GenotypeMatrix, author: str = "import", reason: str = "Initial import") -> MatrixVersion:
-        """Store initial matrix (version 1)."""
+    def store_initial(
+        self,
+        dataset_id: str,
+        genotype_matrix: GenotypeMatrix,
+        author: str = "import",
+        reason: str = "Initial import",
+        timestamp: Optional[str] = None
+    ) -> MatrixVersion:
+        """Store initial matrix (version 1).
+
+        Args:
+            timestamp: ISO format timestamp. Defaults to current UTC time.
+                      Pass an explicit value for deterministic testing.
+        """
         payload = self.delta_encoder.encode_full(genotype_matrix.matrix)
         matrix_hash = compute_matrix_hash(payload, None)
-        
+
+        ts = timestamp or datetime.utcnow().isoformat() + 'Z'
+
         version = MatrixVersion(
             dataset_id=dataset_id,
             matrix_version=1,
@@ -108,7 +122,7 @@ class MatrixStore:
             prev_matrix_hash=None,
             storage_type='full',
             payload=payload,
-            timestamp=datetime.utcnow().isoformat() + 'Z',
+            timestamp=ts,
             reason=reason,
             author=author,
             nrows=genotype_matrix.matrix.shape[0],
@@ -138,17 +152,29 @@ class MatrixStore:
         
         return version
     
-    def store_update(self, dataset_id: str, new_matrix: Union[np.ndarray, GenotypeMatrix], author: str, reason: str) -> MatrixVersion:
-        """Store updated matrix as new version."""
+    def store_update(
+        self,
+        dataset_id: str,
+        new_matrix: Union[np.ndarray, GenotypeMatrix],
+        author: str,
+        reason: str,
+        timestamp: Optional[str] = None
+    ) -> MatrixVersion:
+        """Store updated matrix as new version.
+
+        Args:
+            timestamp: ISO format timestamp. Defaults to current UTC time.
+                      Pass an explicit value for deterministic testing.
+        """
         current_version, current_hash = self.get_current_version(dataset_id)
         new_version_num = current_version + 1
-        
+
         # Extract numpy array if GenotypeMatrix passed
         if isinstance(new_matrix, GenotypeMatrix):
             new_matrix_data = new_matrix.matrix
         else:
             new_matrix_data = new_matrix
-        
+
         if self._should_store_full_snapshot(new_version_num):
             payload = self.delta_encoder.encode_full(new_matrix_data)
             storage_type = 'full'
@@ -161,9 +187,11 @@ class MatrixStore:
             except ValueError:
                 payload = self.delta_encoder.encode_full(new_matrix_data)
                 storage_type = 'full'
-        
+
         matrix_hash = compute_matrix_hash(payload, current_hash)
-        
+
+        ts = timestamp or datetime.utcnow().isoformat() + 'Z'
+
         version = MatrixVersion(
             dataset_id=dataset_id,
             matrix_version=new_version_num,
@@ -171,7 +199,7 @@ class MatrixStore:
             prev_matrix_hash=current_hash,
             storage_type=storage_type,
             payload=payload,
-            timestamp=datetime.utcnow().isoformat() + 'Z',
+            timestamp=ts,
             reason=reason,
             author=author,
             nrows=new_matrix_data.shape[0],
