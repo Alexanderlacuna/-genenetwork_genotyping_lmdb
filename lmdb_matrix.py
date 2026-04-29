@@ -20,6 +20,7 @@ except ImportError as e:
 from geno_storage.geno_parser import parse_genotype_file
 from geno_storage.geno_writer import export_genotype_file
 from geno_storage.matrix_store import MatrixStore
+from geno_storage.cli_helpers import resolved_matrix
 
 
 @click.group()
@@ -250,41 +251,30 @@ def verify_dataset(dataset_id, lmdb_path, fast):
 @click.option('--info-only', is_flag=True, help='Only show matrix info, don\'t print full matrix')
 def reconstruct(dataset_id, lmdb_path, version, output, info_only):
     """Reconstruct a specific version of a matrix."""
-    with MatrixStore(lmdb_path, read_only=True) as store:
-        target_ver = version
-        try:
-            if target_ver is None:
-                target_ver, _ = store.get_current_version(dataset_id)
-        except ValueError as e:
-            click.echo(f"\n✗ {e}")
-            sys.exit(1)
+    try:
+        with resolved_matrix(lmdb_path, dataset_id, version=version) as (_, target_ver, genotype):
+            click.echo(f"Reconstructing {dataset_id} version {target_ver}...")
+            matrix = genotype.matrix
 
-        click.echo(f"Reconstructing {dataset_id} version {target_ver}...")
+            click.echo(f"\nMatrix info:")
+            click.echo(f"  Shape: {matrix.shape}")
+            click.echo(f"  Dtype: {matrix.dtype}")
+            click.echo(f"  Size: {matrix.nbytes / 1024:.2f} KB")
+            click.echo(f"  Samples: {len(genotype.samples)}")
+            click.echo(f"  Markers: {len(genotype.markers)}")
 
-        try:
-            genotype = store.get_matrix(dataset_id, target_ver)
-        except ValueError as e:
-            click.echo(f"\n✗ Reconstruction failed:\n  {e}")
-            sys.exit(1)
+            if not info_only:
+                click.echo(f"\nFirst 10x10:")
+                rows = min(10, matrix.shape[0])
+                cols = min(10, matrix.shape[1])
+                click.echo(matrix[:rows, :cols])
 
-        matrix = genotype.matrix
-        
-        click.echo(f"\nMatrix info:")
-        click.echo(f"  Shape: {matrix.shape}")
-        click.echo(f"  Dtype: {matrix.dtype}")
-        click.echo(f"  Size: {matrix.nbytes / 1024:.2f} KB")
-        click.echo(f"  Samples: {len(genotype.samples)}")
-        click.echo(f"  Markers: {len(genotype.markers)}")
-        
-        if not info_only:
-            click.echo(f"\nFirst 10x10:")
-            rows = min(10, matrix.shape[0])
-            cols = min(10, matrix.shape[1])
-            click.echo(matrix[:rows, :cols])
-        
-        if output:
-            np.save(output, matrix)
-            click.echo(f"\n✓ Saved to {output}")
+            if output:
+                np.save(output, matrix)
+                click.echo(f"\n✓ Saved to {output}")
+    except ValueError as e:
+        click.echo(f"\n✗ {e}")
+        sys.exit(1)
 
 
 @cli.command(name='export-genotype')
@@ -295,33 +285,23 @@ def reconstruct(dataset_id, lmdb_path, version, output, info_only):
 @click.option('--comments', is_flag=True, help='Include header comments in export')
 def export_genotype(dataset_id, lmdb_path, output_file, version, comments):
     """Export a dataset version to a .geno file."""
-    with MatrixStore(lmdb_path, read_only=True) as store:
-        target_ver = version
-        try:
-            if target_ver is None:
-                target_ver, _ = store.get_current_version(dataset_id)
-        except ValueError as e:
-            click.echo(f"\n✗ {e}")
-            sys.exit(1)
+    try:
+        with resolved_matrix(lmdb_path, dataset_id, version=version) as (_, target_ver, genotype):
+            click.echo(f"Exporting {dataset_id} version {target_ver}...")
 
-        click.echo(f"Exporting {dataset_id} version {target_ver}...")
+            out_path = export_genotype_file(
+                genotype,
+                output_file,
+                include_comments=comments
+            )
 
-        try:
-            genotype = store.get_matrix(dataset_id, target_ver)
-        except ValueError as e:
-            click.echo(f"\n✗ Export failed:\n  {e}")
-            sys.exit(1)
-
-        out_path = export_genotype_file(
-            genotype,
-            output_file,
-            include_comments=comments
-        )
-
-        click.echo(f"\n✓ Exported to {out_path}")
-        click.echo(f"  Markers: {len(genotype.markers)}")
-        click.echo(f"  Samples: {len(genotype.samples)}")
-        click.echo(f"  Shape: {genotype.matrix.shape}")
+            click.echo(f"\n✓ Exported to {out_path}")
+            click.echo(f"  Markers: {len(genotype.markers)}")
+            click.echo(f"  Samples: {len(genotype.samples)}")
+            click.echo(f"  Shape: {genotype.matrix.shape}")
+    except ValueError as e:
+        click.echo(f"\n✗ Export failed:\n  {e}")
+        sys.exit(1)
 
 
 @cli.command(name='diff')
