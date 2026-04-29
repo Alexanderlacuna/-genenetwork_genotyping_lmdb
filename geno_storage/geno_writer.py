@@ -50,18 +50,22 @@ def export_genotype_file(
     lines.append(f"@het:H")
     lines.append(f"@unk:U")
 
-    # Header row: Chr, Marker, Mb, cM, then sample names
-    # Use position as Mb (we don't distinguish Mb vs cM in storage)
-    header = ["Chr", "Locus", "Mb", "cM"] + genotype.samples
+    # Header row: Chr, Locus, cM, Mb, then sample names
+    header = ["Chr", "Locus", "cM", "Mb"] + genotype.samples
     lines.append("\t".join(header))
 
     # Data rows
     for i, marker in enumerate(genotype.markers):
         chrom = str(genotype.chromosomes[i]) if i < len(genotype.chromosomes) else ""
-        pos = f"{genotype.positions[i]:.6f}" if i < len(genotype.positions) else "0.0"
-        # cM column — we don't store cM separately, use same as Mb
+
+        cm_val = genotype.cM[i] if i < len(genotype.cM) else None
+        mb_val = genotype.Mb[i] if i < len(genotype.Mb) else None
+
+        cm_str = f"{cm_val:.6f}" if cm_val is not None else ""
+        mb_str = f"{mb_val:.6f}" if mb_val is not None else ""
+
         row_symbols = [reverse_map.get(int(code), 'U') for code in genotype.matrix[i]]
-        row = [chrom, marker, pos, pos] + row_symbols
+        row = [chrom, marker, cm_str, mb_str] + row_symbols
         lines.append("\t".join(row))
 
     with open(out, 'w', encoding='utf-8') as f:

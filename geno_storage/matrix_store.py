@@ -110,7 +110,8 @@ class MatrixStore:
             'markers': genotype_matrix.markers,
             'samples': genotype_matrix.samples,
             'chromosomes': genotype_matrix.chromosomes,
-            'positions': genotype_matrix.positions,
+            'cM': genotype_matrix.cM,
+            'Mb': genotype_matrix.Mb,
             'allele_map': genotype_matrix.allele_map,
             'founders': genotype_matrix.founders,
             'het_code': genotype_matrix.het_code,
@@ -123,11 +124,20 @@ class MatrixStore:
     
     def _decode_metadata(self, data: Dict) -> Dict:
         """Decode metadata dict (handle missing fields for backwards compat)."""
+        # Backwards compat: old stores used 'positions' for a single column
+        cm = data.get('cM')
+        mb = data.get('Mb')
+        if cm is None and mb is None and 'positions' in data:
+            old_positions = data.get('positions', [])
+            cm = old_positions
+            mb = old_positions
+
         return {
             'markers': data.get('markers', []),
             'samples': data.get('samples', []),
             'chromosomes': data.get('chromosomes', []),
-            'positions': data.get('positions', []),
+            'cM': cm if cm is not None else [],
+            'Mb': mb if mb is not None else [],
             'allele_map': data.get('allele_map', {}),
             'founders': data.get('founders', []),
             'het_code': data.get('het_code', 2),
@@ -336,7 +346,8 @@ class MatrixStore:
             markers=metadata['markers'],
             samples=metadata['samples'],
             chromosomes=metadata['chromosomes'],
-            positions=metadata['positions'],
+            cM=metadata['cM'],
+            Mb=metadata['Mb'],
             allele_map=metadata['allele_map'],
             founders=metadata['founders'],
             het_code=metadata['het_code'],
@@ -360,7 +371,8 @@ class MatrixStore:
                 'markers': [],
                 'samples': [],
                 'chromosomes': [],
-                'positions': [],
+                'cM': [],
+                'Mb': [],
                 'allele_map': {},
                 'founders': [],
                 'het_code': 2,

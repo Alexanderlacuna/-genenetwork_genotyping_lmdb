@@ -14,7 +14,8 @@ class GenotypeMatrix:
     markers: List[str]
     samples: List[str]
     chromosomes: List[str]
-    positions: List[float]
+    cM: List[Optional[float]]
+    Mb: List[Optional[float]]
     allele_map: Dict[str, int]
     founders: List[str]
     het_code: int
@@ -181,7 +182,7 @@ class GenoParser:
         n_samples = len(samples)
         matrix = np.zeros((n_markers, n_samples), dtype=np.uint8)
         
-        markers, chromosomes, positions = [], [], []
+        markers, chromosomes, cm_vals, mb_vals = [], [], [], []
         
         for i, line in enumerate(self.raw_lines):
             parts = line.split('\t')
@@ -191,11 +192,25 @@ class GenoParser:
             chromosomes.append(parts[0])
             markers.append(parts[1])
             
-            try:
-                pos = float(parts[2]) if parts[2] else 0.0
-            except ValueError:
-                pos = 0.0
-            positions.append(pos)
+            # Parse cM (column 3 in file, index 2)
+            if parts[2].strip():
+                try:
+                    cm = float(parts[2])
+                except ValueError:
+                    cm = None
+            else:
+                cm = None
+            cm_vals.append(cm)
+            
+            # Parse Mb (column 4 in file, index 3)
+            if len(parts) > 3 and parts[3].strip():
+                try:
+                    mb = float(parts[3])
+                except ValueError:
+                    mb = None
+            else:
+                mb = None
+            mb_vals.append(mb)
             
             data = parts[4:] if len(parts) > 4 else []
             
@@ -220,7 +235,8 @@ class GenoParser:
             markers=markers,
             samples=samples,
             chromosomes=chromosomes,
-            positions=positions,
+            cM=cm_vals,
+            Mb=mb_vals,
             allele_map=clean_map,
             founders=encoding['founders'],
             het_code=het_code,
