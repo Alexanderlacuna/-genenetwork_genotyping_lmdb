@@ -237,11 +237,10 @@ Chr\tLocus\tcM\tMb\tS1
     
     def test_file_metadata(self, metadata_file):
         """Should extract file metadata."""
-        parser = GenoParser(metadata_file)
-        parser.parse()
+        result = parse_genotype_file(metadata_file)
         
-        assert "File name" in parser.file_info
-        assert "Citation" in parser.file_info
+        assert "File name" in result.file_metadata
+        assert "Citation" in result.file_metadata
     
     def test_dataset_metadata(self, metadata_file):
         """Should extract dataset metadata."""
