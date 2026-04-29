@@ -27,7 +27,8 @@ class TestExportBasic:
             markers=["m1", "m2"],
             samples=["s1", "s2", "s3"],
             chromosomes=["1", "1"],
-            positions=[1.0, 2.0],
+            cM=[1.0, 2.0],
+            Mb=[5.0, 6.0],
             allele_map={"B": 0, "D": 1},
             founders=["B", "D"],
             het_code=2,
@@ -88,8 +89,8 @@ class TestExportBasic:
         parts = header_line.split("\t")
         assert parts[0] == "Chr"
         assert parts[1] == "Locus"
-        assert parts[2] == "Mb"
-        assert parts[3] == "cM"
+        assert parts[2] == "cM"
+        assert parts[3] == "Mb"
         assert parts[4] == "s1"
         assert parts[5] == "s2"
         assert parts[6] == "s3"
@@ -137,7 +138,8 @@ class TestRoundTrip:
             markers=["mk1", "mk2", "mk3"],
             samples=["A", "B", "C", "D"],
             chromosomes=["1", "2", "X"],
-            positions=[1.5, 2.5, 3.5],
+            cM=[1.5, 2.5, 3.5],
+            Mb=[5.5, 6.5, 7.5],
             allele_map={"B": 0, "D": 1},
             founders=["B", "D"],
             het_code=2,
@@ -160,7 +162,8 @@ class TestRoundTrip:
         assert original.markers == reparsed.markers
         assert original.samples == reparsed.samples
         assert original.chromosomes == reparsed.chromosomes
-        assert np.allclose(original.positions, reparsed.positions)
+        assert np.allclose(original.cM, reparsed.cM)
+        assert np.allclose(original.Mb, reparsed.Mb)
         assert original.allele_map == reparsed.allele_map
         assert original.founders == reparsed.founders
         assert original.dataset_name == reparsed.dataset_name
@@ -185,7 +188,8 @@ class TestRoundTrip:
         assert original.markers == reparsed.markers
         assert original.samples == reparsed.samples
         assert original.chromosomes == reparsed.chromosomes
-        assert np.allclose(original.positions, reparsed.positions)
+        assert np.allclose(original.cM, reparsed.cM)
+        assert np.allclose(original.Mb, reparsed.Mb)
         assert original.allele_map == reparsed.allele_map
         assert original.founders == reparsed.founders
         assert original.dataset_name == reparsed.dataset_name
@@ -210,7 +214,8 @@ class TestRoundTrip:
         assert original.markers == reparsed.markers
         assert original.samples == reparsed.samples
         assert original.chromosomes == reparsed.chromosomes
-        assert np.allclose(original.positions, reparsed.positions)
+        assert np.allclose(original.cM, reparsed.cM)
+        assert np.allclose(original.Mb, reparsed.Mb)
         assert original.allele_map == reparsed.allele_map
         assert original.founders == reparsed.founders
         assert original.dataset_name == reparsed.dataset_name
@@ -230,7 +235,8 @@ class TestRoundTrip:
             markers=["m1", "m2"],
             samples=["s1", "s2", "s3", "s4", "s5", "s6"],
             chromosomes=["1", "1"],
-            positions=[1.0, 2.0],
+            cM=[1.0, 2.0],
+            Mb=[5.0, 6.0],
             allele_map={"A": 0, "B": 1, "C": 2, "D": 3, "E": 4, "F": 5},
             founders=["A", "B", "C", "D", "E", "F"],
             het_code=6,

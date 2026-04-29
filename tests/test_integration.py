@@ -258,7 +258,8 @@ class TestDeltaEncodingIntegration:
             markers=[f"m{i}" for i in range(100)],
             samples=[f"s{i}" for i in range(50)],
             chromosomes=["1"] * 100,
-            positions=[float(i) for i in range(100)],
+            cM=[float(i) for i in range(100)],
+            Mb=[float(i) for i in range(100)],
             allele_map={"B": 0, "D": 1},
             founders=["B", "D"],
             het_code=2,
@@ -293,7 +294,8 @@ class TestDeltaEncodingIntegration:
             markers=[f"m{i}" for i in range(10)],
             samples=[f"s{i}" for i in range(10)],
             chromosomes=["1"] * 10,
-            positions=[float(i) for i in range(10)],
+            cM=[float(i) for i in range(10)],
+            Mb=[float(i) for i in range(10)],
             allele_map={"B": 0, "D": 1},
             founders=["B", "D"],
             het_code=2,
@@ -397,7 +399,8 @@ Chr\tLocus\tcM\tMb\tS1\tS2\tS3\tS4
         assert reconstructed.markers == ["rs001", "rs002", "rs003", "rs004"]
         assert reconstructed.samples == ["S1", "S2", "S3", "S4"]
         assert reconstructed.chromosomes == ["1", "1", "1", "2"]
-        assert reconstructed.positions == [10.0, 20.0, 30.0, 40.0]
+        assert reconstructed.cM == [10.0, 20.0, 30.0, 40.0]
+        assert reconstructed.Mb == [50.0, 60.0, 70.0, 80.0]
         assert reconstructed.allele_map == {"A": 0, "T": 1}
         assert reconstructed.founders == ["A", "T"]
         assert reconstructed.cross_type == "riset"
@@ -476,7 +479,8 @@ class TestErrorRecovery:
             markers=[f"m{i}" for i in range(5)],
             samples=[f"s{i}" for i in range(5)],
             chromosomes=["1"] * 5,
-            positions=[float(i) for i in range(5)],
+            cM=[float(i) for i in range(5)],
+            Mb=[float(i) for i in range(5)],
             allele_map={"B": 0, "D": 1},
             founders=["B", "D"],
             het_code=2,

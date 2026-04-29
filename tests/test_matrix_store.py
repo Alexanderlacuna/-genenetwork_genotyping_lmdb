@@ -31,7 +31,8 @@ class TestMatrixStoreBasics:
             markers=["m1", "m2"],
             samples=["s1", "s2", "s3"],
             chromosomes=["1", "1"],
-            positions=[1.0, 2.0],
+            cM=[1.0, 2.0],
+            Mb=[1.0, 2.0],
             allele_map={"B": 0, "D": 1},
             founders=["B", "D"],
             het_code=2,
@@ -118,7 +119,8 @@ class TestMatrixVersioning:
             markers=[f"m{i}" for i in range(5)],
             samples=[f"s{i}" for i in range(5)],
             chromosomes=["1"] * 5,
-            positions=[float(i) for i in range(5)],
+            cM=[float(i) for i in range(5)],
+            Mb=[float(i) for i in range(5)],
             allele_map={"B": 0, "D": 1},
             founders=["B", "D"],
             het_code=2,
@@ -216,7 +218,8 @@ class TestMatrixReconstruction:
             markers=[f"m{i}" for i in range(10)],
             samples=[f"s{i}" for i in range(10)],
             chromosomes=["1"] * 10,
-            positions=[float(i) for i in range(10)],
+            cM=[float(i) for i in range(10)],
+            Mb=[float(i) for i in range(10)],
             allele_map={"B": 0, "D": 1},
             founders=["B", "D"],
             het_code=2,
@@ -320,7 +323,8 @@ class TestHashVerification:
             markers=[f"m{i}" for i in range(5)],
             samples=[f"s{i}" for i in range(5)],
             chromosomes=["1"] * 5,
-            positions=[float(i) for i in range(5)],
+            cM=[float(i) for i in range(5)],
+            Mb=[float(i) for i in range(5)],
             allele_map={"B": 0, "D": 1},
             founders=["B", "D"],
             het_code=2,
@@ -403,7 +407,8 @@ class TestMultiDataset:
             markers=[f"m{i}" for i in range(5)],
             samples=[f"s{i}" for i in range(5)],
             chromosomes=["1"] * 5,
-            positions=[float(i) for i in range(5)],
+            cM=[float(i) for i in range(5)],
+            Mb=[float(i) for i in range(5)],
             allele_map={"B": 0, "D": 1},
             founders=["B", "D"],
             het_code=2,
@@ -415,7 +420,8 @@ class TestMultiDataset:
             markers=[f"mx{i}" for i in range(3)],
             samples=[f"sx{i}" for i in range(3)],
             chromosomes=["X"] * 3,
-            positions=[float(i) for i in range(3)],
+            cM=[float(i) for i in range(3)],
+            Mb=[float(i) for i in range(3)],
             allele_map={"A": 0, "B": 1},
             founders=["A", "B"],
             het_code=2,
@@ -450,7 +456,8 @@ class TestMultiDataset:
             markers=[f"m{i}" for i in range(5)],
             samples=[f"s{i}" for i in range(5)],
             chromosomes=["1"] * 5,
-            positions=[float(i) for i in range(5)],
+            cM=[float(i) for i in range(5)],
+            Mb=[float(i) for i in range(5)],
             allele_map={"B": 0, "D": 1},
             founders=["B", "D"],
             het_code=2,
@@ -500,7 +507,8 @@ class TestErrorHandling:
             markers=[f"m{i}" for i in range(5)],
             samples=[f"s{i}" for i in range(5)],
             chromosomes=["1"] * 5,
-            positions=[float(i) for i in range(5)],
+            cM=[float(i) for i in range(5)],
+            Mb=[float(i) for i in range(5)],
             allele_map={"B": 0, "D": 1},
             founders=["B", "D"],
             het_code=2,
@@ -536,7 +544,8 @@ class TestFullSnapshotMetadata:
             markers=["m1", "m2", "m3", "m4", "m5"],
             samples=["s1", "s2", "s3", "s4", "s5"],
             chromosomes=["1", "1", "2", "2", "X"],
-            positions=[1.0, 2.0, 3.0, 4.0, 5.0],
+            cM=[1.0, 2.0, 3.0, 4.0, 5.0],
+            Mb=[1.0, 2.0, 3.0, 4.0, 5.0],
             allele_map={"B": 0, "D": 1},
             founders=["B", "D"],
             het_code=2,
@@ -560,7 +569,8 @@ class TestFullSnapshotMetadata:
             markers=["m1", "m2", "m3", "m4", "m5"],
             samples=["s1", "s2", "s3", "s4", "s5"],
             chromosomes=["1", "1", "2", "2", "X"],
-            positions=[10.0, 20.0, 30.0, 40.0, 50.0],
+            cM=[10.0, 20.0, 30.0, 40.0, 50.0],
+            Mb=[10.0, 20.0, 30.0, 40.0, 50.0],
             allele_map={"B": 0, "D": 1},
             founders=["B", "D"],
             het_code=2,
@@ -578,7 +588,8 @@ class TestFullSnapshotMetadata:
         reconstructed = store.get_matrix("test_ds", 2)
         assert reconstructed.markers == updated.markers
         assert reconstructed.samples == updated.samples
-        assert reconstructed.positions == updated.positions
+        assert reconstructed.cM == updated.cM
+        assert reconstructed.Mb == updated.Mb
         assert reconstructed.chromosomes == updated.chromosomes
         assert reconstructed.allele_map == updated.allele_map
         assert reconstructed.founders == updated.founders
@@ -618,7 +629,8 @@ class TestFullSnapshotMetadata:
             markers=["new_m1", "new_m2", "new_m3", "new_m4", "new_m5"],
             samples=["new_s1", "new_s2", "new_s3", "new_s4", "new_s5"],
             chromosomes=["1", "1", "2", "2", "X"],
-            positions=[100.0, 200.0, 300.0, 400.0, 500.0],
+            cM=[100.0, 200.0, 300.0, 400.0, 500.0],
+            Mb=[100.0, 200.0, 300.0, 400.0, 500.0],
             allele_map={"A": 0, "C": 1},
             founders=["A", "C"],
             het_code=2,
@@ -659,7 +671,8 @@ class TestFullSnapshotMetadata:
             markers=["v4_m1", "v4_m2", "v4_m3", "v4_m4", "v4_m5"],
             samples=["v4_s1", "v4_s2", "v4_s3", "v4_s4", "v4_s5"],
             chromosomes=["1", "2", "3", "4", "5"],
-            positions=[10.0, 20.0, 30.0, 40.0, 50.0],
+            cM=[10.0, 20.0, 30.0, 40.0, 50.0],
+            Mb=[10.0, 20.0, 30.0, 40.0, 50.0],
             allele_map={"A": 0, "T": 1},
             founders=["A", "T"],
             het_code=2,
@@ -676,7 +689,8 @@ class TestFullSnapshotMetadata:
         assert reconstructed.markers == updated.markers
         assert reconstructed.samples == updated.samples
         assert reconstructed.chromosomes == updated.chromosomes
-        assert reconstructed.positions == updated.positions
+        assert reconstructed.cM == updated.cM
+        assert reconstructed.Mb == updated.Mb
         assert reconstructed.allele_map == updated.allele_map
         assert reconstructed.founders == updated.founders
         assert reconstructed.dataset_name == updated.dataset_name
@@ -710,7 +724,8 @@ class TestFastVerification:
             markers=[f"m{i}" for i in range(5)],
             samples=[f"s{i}" for i in range(5)],
             chromosomes=["1"] * 5,
-            positions=[float(i) for i in range(5)],
+            cM=[float(i) for i in range(5)],
+            Mb=[float(i) for i in range(5)],
             allele_map={"B": 0, "D": 1},
             founders=["B", "D"],
             het_code=2,
@@ -842,7 +857,8 @@ class TestFriendlyErrorMessages:
             markers=[f"m{i}" for i in range(5)],
             samples=[f"s{i}" for i in range(5)],
             chromosomes=["1"] * 5,
-            positions=[float(i) for i in range(5)],
+            cM=[float(i) for i in range(5)],
+            Mb=[float(i) for i in range(5)],
             allele_map={"B": 0, "D": 1},
             founders=["B", "D"],
             het_code=2,

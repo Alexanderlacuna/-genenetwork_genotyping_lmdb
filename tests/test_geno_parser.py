@@ -71,10 +71,11 @@ Chr\tLocus\tcM\tMb\tBXD1\tBXD2\tBXD5
         assert result.chromosomes == ["1", "1", "2"]
     
     def test_positions(self, bxd_geno_file):
-        """Should extract position info."""
+        """Should extract cM and Mb position info."""
         result = parse_genotype_file(bxd_geno_file)
         
-        assert result.positions == [1.5, 2.5, 0.0]
+        assert result.cM == [1.5, 2.5, 0.0]
+        assert result.Mb == [3.0, 4.0, 5.0]
     
     def test_allele_encoding(self, bxd_geno_file):
         """Should encode alleles correctly."""
@@ -438,7 +439,8 @@ class TestGenotypeMatrixMethods:
             markers=["m1", "m2"],
             samples=["s1", "s2"],
             chromosomes=["1", "1"],
-            positions=[1.0, 2.0],
+            cM=[1.0, 2.0],
+            Mb=[5.0, 6.0],
             allele_map={"A": 0, "B": 1},
             founders=["A", "B"],
             het_code=2,
