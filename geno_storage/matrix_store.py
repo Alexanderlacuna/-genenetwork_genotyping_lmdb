@@ -257,10 +257,29 @@ class MatrixStore:
             return MatrixVersion.from_dict(json.loads(value.decode('utf-8')), payload)
     
     def get_matrix(self, dataset_id: str, target_version: Optional[int] = None) -> GenotypeMatrix:
-        """Reconstruct matrix with metadata at version."""
+        """Reconstruct matrix with metadata at version.
+
+        Separates planning (calculation), fetching (action), and
+        reconstruction (calculation) into distinct phases.
+        """
         if target_version is None:
             target_version, _ = self.get_current_version(dataset_id)
-        
+
+        # Phase 1: Plan — what versions do we need? (calculation)
+        plan = self._reconstruction_plan(dataset_id, target_version)
+
+        # Phase 2: Fetch — get payloads from LMDB (action)
+        payloads = self._fetch_payloads(plan)
+
+        # Phase 3: Reconstruct — assemble matrix (calculation)
+        return self._reconstruct_from_payloads(plan, payloads)
+
+    def _reconstruction_plan(self, dataset_id: str, target_version: int) -> Dict:
+        """Determine which versions are needed for reconstruction.
+
+        Pure calculation: given version info, return a plan dict.
+        No LMDB I/O — uses get_version which is already tested.
+        """
         full_version = self._find_nearest_full_snapshot(dataset_id, target_version)
         if full_version is None:
             raise ValueError(
@@ -269,53 +288,69 @@ class MatrixStore:
                 f"  - This usually means the dataset was never imported, or all full snapshots were deleted.\n"
                 f"  - The ledger may be corrupted (try 'verify' to check)."
             )
-        
-        version_data = self.get_version(dataset_id, full_version)
-        if not version_data:
-            raise ValueError(
-                f"Cannot reconstruct version {target_version} of dataset '{dataset_id}': "
-                f"full snapshot at v{full_version} is referenced but missing from storage.\n"
-                f"  - The ledger may be corrupted (try 'verify' to check).\n"
-                f"  - If you have an external backup, restore it."
-            )
 
-        if version_data.payload is None:
-            raise ValueError(
-                f"Cannot reconstruct version {target_version} of dataset '{dataset_id}': "
-                f"payload for full snapshot at v{full_version} is missing.\n"
-                f"  - The ledger may be corrupted (try 'verify' to check).\n"
-                f"  - If you have an external backup, restore it."
-            )
-        
+        needed_versions = [full_version] + list(range(full_version + 1, target_version + 1))
+        return {
+            'dataset_id': dataset_id,
+            'target_version': target_version,
+            'full_version': full_version,
+            'needed_versions': needed_versions,
+        }
+
+    def _fetch_payloads(self, plan: Dict) -> Dict[int, bytes]:
+        """Fetch all required payloads from LMDB.
+
+        Action: performs I/O, returns payloads keyed by version.
+        """
+        dataset_id = plan['dataset_id']
+        payloads = {}
+
+        for v in plan['needed_versions']:
+            version_data = self.get_version(dataset_id, v)
+            if not version_data:
+                full_version = plan['full_version']
+                target_version = plan['target_version']
+                raise ValueError(
+                    f"Cannot reconstruct version {target_version} of dataset '{dataset_id}': "
+                    f"{'full snapshot' if v == full_version else 'delta'} at v{v} is referenced but missing.\n"
+                    f"  - The nearest full snapshot is at v{full_version}.\n"
+                    f"  - The ledger may be corrupted (try 'verify' to check)."
+                )
+            if version_data.payload is None:
+                full_version = plan['full_version']
+                target_version = plan['target_version']
+                raise ValueError(
+                    f"Cannot reconstruct version {target_version} of dataset '{dataset_id}': "
+                    f"payload for {'full snapshot' if v == full_version else 'delta'} at v{v} is missing.\n"
+                    f"  - The ledger may be corrupted (try 'verify' to check).\n"
+                    f"  - If you have an external backup, restore it."
+                )
+            payloads[v] = version_data.payload
+
+        return payloads
+
+    def _reconstruct_from_payloads(self, plan: Dict, payloads: Dict[int, bytes]) -> GenotypeMatrix:
+        """Reconstruct GenotypeMatrix from payloads.
+
+        Pure calculation: given payloads and plan, assemble matrix.
+        No LMDB I/O, no side effects.
+        """
+        dataset_id = plan['dataset_id']
+        full_version = plan['full_version']
+        target_version = plan['target_version']
+
         # Get metadata from full snapshot
         metadata = self._get_metadata(dataset_id, full_version)
-        
-        _, current_matrix = self.delta_encoder.decode(version_data.payload)
-        
+
+        # Decode full snapshot
+        _, current_matrix = self.delta_encoder.decode(payloads[full_version])
+
+        # Apply deltas
         for v in range(full_version + 1, target_version + 1):
-            delta_version = self.get_version(dataset_id, v)
-            if not delta_version:
-                raise ValueError(
-                    f"Cannot reconstruct version {target_version} of dataset '{dataset_id}': "
-                    f"delta at v{v} is missing.\n"
-                    f"  - The nearest full snapshot is at v{full_version}.\n"
-                    f"  - Deltas from v{full_version + 1} to v{target_version} are required.\n"
-                    f"  - The ledger may be corrupted (try 'verify' to check)."
-                )
-
-            if delta_version.payload is None:
-                raise ValueError(
-                    f"Cannot reconstruct version {target_version} of dataset '{dataset_id}': "
-                    f"payload for delta at v{v} is missing.\n"
-                    f"  - The nearest full snapshot is at v{full_version}.\n"
-                    f"  - Deltas from v{full_version + 1} to v{target_version} are required.\n"
-                    f"  - The ledger may be corrupted (try 'verify' to check)."
-                )
-
-            _, delta_data = self.delta_encoder.decode(delta_version.payload)
-            delta_type = delta_version.payload[0]
+            _, delta_data = self.delta_encoder.decode(payloads[v])
+            delta_type = payloads[v][0]
             current_matrix = self.delta_encoder.apply_delta(current_matrix, delta_data, delta_type)
-        
+
         # Return GenotypeMatrix with metadata
         return GenotypeMatrix(
             matrix=current_matrix,
