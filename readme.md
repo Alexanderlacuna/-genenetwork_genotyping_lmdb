@@ -130,7 +130,8 @@ Reconstructing returns a `GenotypeMatrix`:
 | `markers` | Marker/SNP names |
 | `samples` | Strain or sample IDs |
 | `chromosomes` | Chromosome per marker |
-| `positions` | Genetic or physical positions |
+| `cM` | Genetic positions (centiMorgans) per marker |
+| `Mb` | Physical positions (megabases) per marker |
 | `allele_map` | Symbol → code mapping (e.g., `{'B': 0, 'D': 1}`) |
 | `founders` | Parental strains |
 | `cross_type` | Cross type (riset, hs, f2, etc.) |
