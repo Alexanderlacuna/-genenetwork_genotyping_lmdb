@@ -58,6 +58,7 @@ class MatrixVersion:
     nrows: int
     ncols: int
     dtype: str
+    compression: Optional[str] = None
 
     def to_dict(self) -> Dict[str, Any]:
         """Convert to dict (excludes payload)."""
@@ -67,6 +68,7 @@ class MatrixVersion:
             'matrix_hash': self.matrix_hash,
             'prev_matrix_hash': self.prev_matrix_hash,
             'storage_type': self.storage_type,
+            'compression': self.compression,
             'timestamp': self.timestamp,
             'reason': self.reason,
             'author': self.author,
@@ -85,6 +87,7 @@ class MatrixVersion:
             prev_matrix_hash=data.get('prev_matrix_hash'),
             storage_type=data['storage_type'],
             payload=payload,
+            compression=data.get('compression'),
             timestamp=data['timestamp'],
             reason=data['reason'],
             author=data['author'],
