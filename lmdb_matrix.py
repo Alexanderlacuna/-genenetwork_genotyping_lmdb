@@ -34,7 +34,8 @@ def cli():
 @click.option('--dataset-id', '-d', help='Dataset ID (default: from file metadata)')
 @click.option('--author', '-a', default='cli_import', help='Author of import')
 @click.option('--reason', '-r', default=None, help='Reason for import')
-def import_genotype(geno_file, lmdb_path, dataset_id, author, reason):
+@click.option('--compression', '-c', default=None, help='Payload compression algorithm (default: none). Set once at store creation time. Choices: zlib, none.')
+def import_genotype(geno_file, lmdb_path, dataset_id, author, reason, compression):
     """Import a .geno file into LMDB with versioning."""
     geno_path = Path(geno_file)
 
@@ -65,13 +66,16 @@ def import_genotype(geno_file, lmdb_path, dataset_id, author, reason):
             ds_id,
             genotype,
             author=author,
-            reason=reason
+            reason=reason,
+            compression=compression
         )
 
         click.echo(f"\n✓ Stored as version {version.matrix_version}")
         click.echo(f"  Dataset ID: {ds_id}")
         click.echo(f"  Hash: {version.matrix_hash}")
         click.echo(f"  Storage type: {version.storage_type}")
+        if version.compression:
+            click.echo(f"  Compression: {version.compression}")
         click.echo(f"  Timestamp: {version.timestamp}")
 
 
@@ -163,21 +167,23 @@ def list_versions(dataset_id, lmdb_path):
             sys.exit(1)
         
         click.echo(f"\nDataset: {dataset_id}")
-        click.echo("-" * 100)
-        click.echo(f"{'Ver':<5} {'Type':<8} {'Hash':<18} {'Timestamp':<25} {'Author':<15} {'Reason'}")
-        click.echo("-" * 100)
+        click.echo("-" * 110)
+        click.echo(f"{'Ver':<5} {'Type':<8} {'Compress':<10} {'Hash':<18} {'Timestamp':<25} {'Author':<15} {'Reason'}")
+        click.echo("-" * 110)
         
         for v in versions:
+            compress_str = v.get('compression', '-') or '-'
             click.echo(
                 f"{v['matrix_version']:<5} "
                 f"{v['storage_type']:<8} "
+                f"{compress_str:<10} "
                 f"{v['matrix_hash'][:16]:<18} "
                 f"{v['timestamp']:<25} "
                 f"{v['author']:<15} "
                 f"{v['reason'][:40]}"
             )
         
-        click.echo("-" * 100)
+        click.echo("-" * 110)
         click.echo(f"Total: {len(versions)} versions")
 
 
@@ -455,7 +461,8 @@ def stats_dataset(dataset_id, lmdb_path):
 @click.argument('genotype_directory', type=click.Path(exists=True))
 @click.argument('lmdb_path', type=click.Path())
 @click.option('--author', '-a', default='batch_import', help='Author')
-def import_directory(genotype_directory, lmdb_path, author):
+@click.option('--compression', '-c', default=None, help='Payload compression algorithm (default: none). Set once at store creation time. Choices: zlib, none.')
+def import_directory(genotype_directory, lmdb_path, author, compression):
     """Import all .geno files from a directory."""
     directory = Path(genotype_directory)
     geno_files = sorted(directory.glob('*.geno'))
@@ -480,7 +487,8 @@ def import_directory(genotype_directory, lmdb_path, author):
                     genotype.dataset_name,
                     genotype,
                     author=author,
-                    reason=f"Batch import from {geno_file.name}"
+                    reason=f"Batch import from {geno_file.name}",
+                    compression=compression
                 )
                 
                 click.echo(f"  ✓ Version {version.matrix_version} ({genotype.matrix.shape})")

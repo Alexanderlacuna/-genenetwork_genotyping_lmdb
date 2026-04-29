@@ -11,6 +11,7 @@ import lmdb
 from .hashing import compute_matrix_hash, canonical_json
 from .delta import DeltaEncoder
 from .geno_parser import GenotypeMatrix
+from .compression import compress_payload, decompress_payload
 
 
 @dataclass
@@ -28,6 +29,7 @@ class MatrixVersion:
     nrows: int
     ncols: int
     dtype: str
+    compression: Optional[str] = None
     
     def to_dict(self) -> Dict:
         """Convert to dict (excludes payload)."""
@@ -37,6 +39,7 @@ class MatrixVersion:
             'matrix_hash': self.matrix_hash,
             'prev_matrix_hash': self.prev_matrix_hash,
             'storage_type': self.storage_type,
+            'compression': self.compression,
             'timestamp': self.timestamp,
             'reason': self.reason,
             'author': self.author,
@@ -55,6 +58,7 @@ class MatrixVersion:
             prev_matrix_hash=data.get('prev_matrix_hash'),
             storage_type=data['storage_type'],
             payload=payload,
+            compression=data.get('compression'),
             timestamp=data['timestamp'],
             reason=data['reason'],
             author=data['author'],
@@ -70,6 +74,7 @@ class MatrixStore:
     DB_MATRIX_HISTORY = b'matrix_history'
     DB_GENOTYPES = b'genotypes'
     DB_INFO = b'info'
+    DB_CONFIG = b'config'
     FULL_SNAPSHOT_INTERVAL = 10
     
     def __init__(self, db_path: Union[str, Path], map_size: int = 100 * 1024 * 1024 * 1024, read_only: bool = False):
@@ -88,6 +93,7 @@ class MatrixStore:
             self.env.open_db(self.DB_MATRIX_HISTORY, txn=txn, create=not read_only)
             self.env.open_db(self.DB_GENOTYPES, txn=txn, create=not read_only)
             self.env.open_db(self.DB_INFO, txn=txn, create=not read_only)
+            self.env.open_db(self.DB_CONFIG, txn=txn, create=not read_only)
     
     def _get_db(self, txn, db_name: bytes):
         """Get DB handle for transaction."""
@@ -98,7 +104,18 @@ class MatrixStore:
     
     def _make_info_key(self, dataset_id: str) -> bytes:
         return dataset_id.encode('utf-8')
-    
+
+    def _get_store_config(self, txn, key: str, default=None):
+        """Read store-level configuration from LMDB."""
+        config_db = self._get_db(txn, self.DB_CONFIG)
+        value = txn.get(key.encode('utf-8'), db=config_db)
+        return json.loads(value.decode('utf-8')) if value else default
+
+    def _set_store_config(self, txn, key: str, value) -> None:
+        """Persist store-level configuration to LMDB."""
+        config_db = self._get_db(txn, self.DB_CONFIG)
+        txn.put(key.encode('utf-8'), json.dumps(value).encode('utf-8'), db=config_db)
+
     def _should_store_full_snapshot(self, version: int) -> bool:
         if version == 1:
             return True
@@ -148,27 +165,57 @@ class MatrixStore:
             'pat_allele': data.get('pat_allele'),
         }
     
-    def store_initial(self, dataset_id: str, genotype_matrix: GenotypeMatrix, author: str = "import", reason: str = "Initial import") -> MatrixVersion:
-        """Store initial matrix (version 1)."""
-        payload = self.delta_encoder.encode_full(genotype_matrix.matrix)
-        matrix_hash = compute_matrix_hash(payload, None)
-        
-        version = MatrixVersion(
-            dataset_id=dataset_id,
-            matrix_version=1,
-            matrix_hash=matrix_hash,
-            prev_matrix_hash=None,
-            storage_type='full',
-            payload=payload,
-            timestamp=datetime.utcnow().isoformat() + 'Z',
-            reason=reason,
-            author=author,
-            nrows=genotype_matrix.matrix.shape[0],
-            ncols=genotype_matrix.matrix.shape[1],
-            dtype=str(genotype_matrix.matrix.dtype)
-        )
+    def store_initial(
+        self,
+        dataset_id: str,
+        genotype_matrix: GenotypeMatrix,
+        author: str = "import",
+        reason: str = "Initial import",
+        compression: Optional[str] = None
+    ) -> MatrixVersion:
+        """Store initial matrix (version 1).
+
+        Args:
+            compression: 'zlib' for compression, or None (default) for no compression.
+                         Set once per store on first import. Subsequent opens read from config.
+        """
+        raw_payload = self.delta_encoder.encode_full(genotype_matrix.matrix)
         
         with self.env.begin(write=True) as txn:
+            # Read or set store-level compression config
+            store_compression = self._get_store_config(txn, 'compression')
+            if store_compression is None:
+                # First write to this store — set compression permanently
+                store_compression = compression
+                self._set_store_config(txn, 'compression', store_compression)
+            elif compression is not None and compression != store_compression:
+                raise ValueError(
+                    f"Store already uses compression={store_compression!r}. "
+                    f"Mixed compression within one store is not allowed. "
+                    f"Remove --compression flag, or use a new store."
+                )
+            
+            # Compress payload if configured
+            payload = compress_payload(raw_payload, store_compression)
+            
+            matrix_hash = compute_matrix_hash(payload, None)
+            
+            version = MatrixVersion(
+                dataset_id=dataset_id,
+                matrix_version=1,
+                matrix_hash=matrix_hash,
+                prev_matrix_hash=None,
+                storage_type='full',
+                payload=payload,
+                compression=store_compression,
+                timestamp=datetime.utcnow().isoformat() + 'Z',
+                reason=reason,
+                author=author,
+                nrows=genotype_matrix.matrix.shape[0],
+                ncols=genotype_matrix.matrix.shape[1],
+                dtype=str(genotype_matrix.matrix.dtype)
+            )
+            
             matrix_db = self._get_db(txn, self.DB_MATRIX_HISTORY)
             geno_db = self._get_db(txn, self.DB_GENOTYPES)
             info_db = self._get_db(txn, self.DB_INFO)
@@ -202,36 +249,43 @@ class MatrixStore:
             new_matrix_data = new_matrix
         
         if self._should_store_full_snapshot(new_version_num):
-            payload = self.delta_encoder.encode_full(new_matrix_data)
+            raw_payload = self.delta_encoder.encode_full(new_matrix_data)
             storage_type = 'full'
         else:
             try:
                 base_genotype = self.get_matrix(dataset_id, current_version)
                 base_matrix_data = base_genotype.matrix
-                payload = self.delta_encoder.encode_delta(base_matrix_data, new_matrix_data, new_version_num)
+                raw_payload = self.delta_encoder.encode_delta(base_matrix_data, new_matrix_data, new_version_num)
                 storage_type = 'delta'
             except ValueError:
-                payload = self.delta_encoder.encode_full(new_matrix_data)
+                raw_payload = self.delta_encoder.encode_full(new_matrix_data)
                 storage_type = 'full'
         
-        matrix_hash = compute_matrix_hash(payload, current_hash)
-        
-        version = MatrixVersion(
-            dataset_id=dataset_id,
-            matrix_version=new_version_num,
-            matrix_hash=matrix_hash,
-            prev_matrix_hash=current_hash,
-            storage_type=storage_type,
-            payload=payload,
-            timestamp=datetime.utcnow().isoformat() + 'Z',
-            reason=reason,
-            author=author,
-            nrows=new_matrix_data.shape[0],
-            ncols=new_matrix_data.shape[1],
-            dtype=str(new_matrix_data.dtype)
-        )
-        
         with self.env.begin(write=True) as txn:
+            # Read store-level compression config (set on initial import)
+            store_compression = self._get_store_config(txn, 'compression')
+            
+            # Compress payload if configured
+            payload = compress_payload(raw_payload, store_compression)
+            
+            matrix_hash = compute_matrix_hash(payload, current_hash)
+            
+            version = MatrixVersion(
+                dataset_id=dataset_id,
+                matrix_version=new_version_num,
+                matrix_hash=matrix_hash,
+                prev_matrix_hash=current_hash,
+                storage_type=storage_type,
+                payload=payload,
+                compression=store_compression,
+                timestamp=datetime.utcnow().isoformat() + 'Z',
+                reason=reason,
+                author=author,
+                nrows=new_matrix_data.shape[0],
+                ncols=new_matrix_data.shape[1],
+                dtype=str(new_matrix_data.dtype)
+            )
+            
             matrix_db = self._get_db(txn, self.DB_MATRIX_HISTORY)
             geno_db = self._get_db(txn, self.DB_GENOTYPES)
             info_db = self._get_db(txn, self.DB_INFO)
@@ -314,7 +368,9 @@ class MatrixStore:
         # Get metadata from full snapshot
         metadata = self._get_metadata(dataset_id, full_version)
         
-        _, current_matrix = self.delta_encoder.decode(version_data.payload)
+        # Decompress payload before decoding
+        raw_payload = decompress_payload(version_data.payload, version_data.compression)
+        _, current_matrix = self.delta_encoder.decode(raw_payload)
         
         for v in range(full_version + 1, target_version + 1):
             delta_version = self.get_version(dataset_id, v)
@@ -336,8 +392,10 @@ class MatrixStore:
                     f"  - The ledger may be corrupted (try 'verify' to check)."
                 )
 
-            _, delta_data = self.delta_encoder.decode(delta_version.payload)
-            delta_type = delta_version.payload[0]
+            # Decompress payload before decoding
+            raw_delta = decompress_payload(delta_version.payload, delta_version.compression)
+            _, delta_data = self.delta_encoder.decode(raw_delta)
+            delta_type = raw_delta[0]
             current_matrix = self.delta_encoder.apply_delta(current_matrix, delta_data, delta_type)
         
         # Return GenotypeMatrix with metadata
