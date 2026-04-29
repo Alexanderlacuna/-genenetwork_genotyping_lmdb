@@ -2,3 +2,5 @@
 __pycache__/
 *.geno
 lmdb_store/
+design_2.md
+design_2.md.backup
