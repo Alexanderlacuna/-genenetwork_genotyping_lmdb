@@ -15,6 +15,7 @@ from .hashing import compute_matrix_hash, canonical_json
 from .delta import DeltaEncoder
 from .models import GenotypeMatrix, MatrixVersion
 from .reconstruction import reconstruct_from_payloads
+from .compression import compress_payload, decompress_payload
 
 
 def encode_metadata(genotype_matrix: GenotypeMatrix) -> Dict:
@@ -79,6 +80,7 @@ class MatrixStore:
     DB_MATRIX_HISTORY = b'matrix_history'
     DB_GENOTYPES = b'genotypes'
     DB_INFO = b'info'
+    DB_CONFIG = b'config'
     FULL_SNAPSHOT_INTERVAL = 10
 
     def __init__(self, db_path: Union[str, Path], map_size: int = 100 * 1024 * 1024 * 1024, read_only: bool = False):
@@ -97,6 +99,7 @@ class MatrixStore:
             self.env.open_db(self.DB_MATRIX_HISTORY, txn=txn, create=not read_only)
             self.env.open_db(self.DB_GENOTYPES, txn=txn, create=not read_only)
             self.env.open_db(self.DB_INFO, txn=txn, create=not read_only)
+            self.env.open_db(self.DB_CONFIG, txn=txn, create=not read_only)
 
     def get_db(self, txn, db_name: bytes):
         """Get DB handle for transaction."""
@@ -110,6 +113,17 @@ class MatrixStore:
         """Make LMDB key for info entry."""
         return dataset_id.encode('utf-8')
 
+    def get_store_config(self, txn, key: str, default=None):
+        """Read store-level configuration from LMDB."""
+        config_db = self.get_db(txn, self.DB_CONFIG)
+        value = txn.get(key.encode('utf-8'), db=config_db)
+        return json.loads(value.decode('utf-8')) if value else default
+
+    def set_store_config(self, txn, key: str, value) -> None:
+        """Persist store-level configuration to LMDB."""
+        config_db = self.get_db(txn, self.DB_CONFIG)
+        txn.put(key.encode('utf-8'), json.dumps(value).encode('utf-8'), db=config_db)
+
     def should_store_full_snapshot(self, version: int) -> bool:
         """Check if this version should be a full snapshot."""
         if version == 1:
@@ -122,35 +136,53 @@ class MatrixStore:
         genotype_matrix: GenotypeMatrix,
         author: str = "import",
         reason: str = "Initial import",
-        timestamp: Optional[str] = None
+        timestamp: Optional[str] = None,
+        compression: Optional[str] = None
     ) -> MatrixVersion:
         """Store initial matrix (version 1).
 
         Args:
             timestamp: ISO format timestamp. Defaults to current UTC time.
                       Pass an explicit value for deterministic testing.
+            compression: Compression algorithm (e.g. 'zlib') or None for no compression.
+                        Set once per store on first import. Subsequent opens read from config.
         """
-        payload = self.delta_encoder.encode_full(genotype_matrix.matrix)
-        matrix_hash = compute_matrix_hash(payload, None)
-
-        ts = timestamp or datetime.utcnow().isoformat() + 'Z'
-
-        version = MatrixVersion(
-            dataset_id=dataset_id,
-            matrix_version=1,
-            matrix_hash=matrix_hash,
-            prev_matrix_hash=None,
-            storage_type='full',
-            payload=payload,
-            timestamp=ts,
-            reason=reason,
-            author=author,
-            nrows=genotype_matrix.matrix.shape[0],
-            ncols=genotype_matrix.matrix.shape[1],
-            dtype=str(genotype_matrix.matrix.dtype)
-        )
+        raw_payload = self.delta_encoder.encode_full(genotype_matrix.matrix)
 
         with self.env.begin(write=True) as txn:
+            # Read or set store-level compression config
+            store_compression = self.get_store_config(txn, 'compression')
+            if store_compression is None:
+                store_compression = compression
+                self.set_store_config(txn, 'compression', store_compression)
+            elif compression is not None and compression != store_compression:
+                raise ValueError(
+                    f"Store already uses compression={store_compression!r}. "
+                    f"Mixed compression within one store is not allowed. "
+                    f"Remove --compression flag, or use a new store."
+                )
+
+            payload = compress_payload(raw_payload, store_compression)
+            matrix_hash = compute_matrix_hash(payload, None)
+
+            ts = timestamp or datetime.utcnow().isoformat() + 'Z'
+
+            version = MatrixVersion(
+                dataset_id=dataset_id,
+                matrix_version=1,
+                matrix_hash=matrix_hash,
+                prev_matrix_hash=None,
+                storage_type='full',
+                payload=payload,
+                compression=store_compression,
+                timestamp=ts,
+                reason=reason,
+                author=author,
+                nrows=genotype_matrix.matrix.shape[0],
+                ncols=genotype_matrix.matrix.shape[1],
+                dtype=str(genotype_matrix.matrix.dtype)
+            )
+
             matrix_db = self.get_db(txn, self.DB_MATRIX_HISTORY)
             geno_db = self.get_db(txn, self.DB_GENOTYPES)
             info_db = self.get_db(txn, self.DB_INFO)
@@ -196,18 +228,22 @@ class MatrixStore:
             new_matrix_data = new_matrix
 
         if self.should_store_full_snapshot(new_version_num):
-            payload = self.delta_encoder.encode_full(new_matrix_data)
+            raw_payload = self.delta_encoder.encode_full(new_matrix_data)
             storage_type = 'full'
         else:
             try:
                 base_genotype = self.get_matrix(dataset_id, current_version)
                 base_matrix_data = base_genotype.matrix
-                payload = self.delta_encoder.encode_delta(base_matrix_data, new_matrix_data, new_version_num)
+                raw_payload = self.delta_encoder.encode_delta(base_matrix_data, new_matrix_data, new_version_num)
                 storage_type = 'delta'
             except ValueError:
-                payload = self.delta_encoder.encode_full(new_matrix_data)
+                raw_payload = self.delta_encoder.encode_full(new_matrix_data)
                 storage_type = 'full'
 
+        with self.env.begin() as txn:
+            store_compression = self.get_store_config(txn, 'compression')
+
+        payload = compress_payload(raw_payload, store_compression)
         matrix_hash = compute_matrix_hash(payload, current_hash)
 
         ts = timestamp or datetime.utcnow().isoformat() + 'Z'
@@ -219,6 +255,7 @@ class MatrixStore:
             prev_matrix_hash=current_hash,
             storage_type=storage_type,
             payload=payload,
+            compression=store_compression,
             timestamp=ts,
             reason=reason,
             author=author,
@@ -310,7 +347,7 @@ class MatrixStore:
         }
 
     def fetch_payloads(self, plan: Dict) -> Dict[int, bytes]:
-        """Fetch all required payloads from LMDB."""
+        """Fetch all required payloads from LMDB and decompress."""
         dataset_id = plan['dataset_id']
         payloads = {}
 
@@ -334,7 +371,7 @@ class MatrixStore:
                     f"  - The ledger may be corrupted (try 'verify' to check).\n"
                     f"  - If you have an external backup, restore it."
                 )
-            payloads[v] = version_data.payload
+            payloads[v] = decompress_payload(version_data.payload, version_data.compression)
 
         return payloads
 
