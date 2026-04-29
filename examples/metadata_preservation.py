@@ -10,7 +10,7 @@ import tempfile
 import shutil
 import numpy as np
 from geno_storage.matrix_store import MatrixStore
-from geno_storage.geno_parser import GenotypeMatrix
+from geno_storage.models import GenotypeMatrix
 
 
 def main():

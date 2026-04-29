@@ -13,7 +13,8 @@ import numpy as np
 import os
 
 from geno_storage.matrix_store import MatrixStore
-from geno_storage.geno_parser import parse_genotype_file, GenotypeMatrix
+from geno_storage.geno_parser import parse_genotype_file
+from geno_storage.models import GenotypeMatrix
 
 
 def create_geno_file(path, content):

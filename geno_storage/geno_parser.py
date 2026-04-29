@@ -1,43 +1,11 @@
 """.geno file parser with multi-founder support."""
 
 import numpy as np
-from dataclasses import dataclass, field
 from pathlib import Path
 from typing import Dict, List, Optional, Union
 from subprocess import check_output
 
-
-@dataclass
-class GenotypeMatrix:
-    """Genotype matrix with metadata."""
-    matrix: np.ndarray
-    markers: List[str]
-    samples: List[str]
-    chromosomes: List[str]
-    cM: List[Optional[float]]
-    Mb: List[Optional[float]]
-    allele_map: Dict[str, int]
-    founders: List[str]
-    het_code: int
-    unk_code: int
-    dataset_name: str = ""
-    cross_type: str = ""
-    mat_allele: Optional[str] = None
-    pat_allele: Optional[str] = None
-    genome_build: str = ""
-    file_metadata: Dict = field(default_factory=dict)
-    
-    def get_allele_frequencies(self) -> Dict[int, int]:
-        """Count allele codes."""
-        unique, counts = np.unique(self.matrix, return_counts=True)
-        return dict(zip(unique.tolist(), counts.tolist()))
-    
-    def decode_row(self, row_idx: int) -> List[str]:
-        """Decode numeric codes to symbols."""
-        reverse_map = {v: k for k, v in self.allele_map.items()}
-        reverse_map[self.het_code] = 'H'
-        reverse_map[self.unk_code] = 'U'
-        return [reverse_map.get(code, '?') for code in self.matrix[row_idx]]
+from .models import GenotypeMatrix
 
 
 class GenoParser:

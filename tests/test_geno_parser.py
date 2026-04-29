@@ -8,7 +8,8 @@ from pathlib import Path
 import tempfile
 import os
 
-from geno_storage.geno_parser import GenoParser, parse_genotype_file, GenotypeMatrix
+from geno_storage.geno_parser import GenoParser, parse_genotype_file
+from geno_storage.models import GenotypeMatrix
 
 
 class TestBXDStyleParsing:

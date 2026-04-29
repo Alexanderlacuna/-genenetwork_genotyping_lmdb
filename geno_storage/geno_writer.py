@@ -3,7 +3,7 @@
 from pathlib import Path
 from typing import Union
 
-from .geno_parser import GenotypeMatrix
+from .models import GenotypeMatrix
 
 
 def export_genotype_file(

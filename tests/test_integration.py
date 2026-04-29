@@ -11,7 +11,8 @@ import shutil
 import os
 from pathlib import Path
 
-from geno_storage.geno_parser import parse_genotype_file, GenotypeMatrix
+from geno_storage.geno_parser import parse_genotype_file
+from geno_storage.models import GenotypeMatrix
 from geno_storage.matrix_store import MatrixStore
 from geno_storage.delta import DeltaEncoder
 from geno_storage.hashing import verify_hash_chain
@@ -419,7 +420,24 @@ Chr\tLocus\tcM\tMb\tS1\tS2\tS3\tS4
 
         # v2: Small change — pass full GenotypeMatrix, but delta will be used
         genotype_v2 = parse_genotype_file(geno_v1_file)
-        genotype_v2.matrix[0, 0] = 1  # Small change
+        new_matrix = genotype_v2.matrix.copy()
+        new_matrix[0, 0] = 1  # Small change
+        genotype_v2 = GenotypeMatrix(
+            matrix=new_matrix,
+            markers=genotype_v2.markers,
+            samples=genotype_v2.samples,
+            chromosomes=genotype_v2.chromosomes,
+            cM=genotype_v2.cM,
+            Mb=genotype_v2.Mb,
+            allele_map=genotype_v2.allele_map,
+            founders=genotype_v2.founders,
+            het_code=genotype_v2.het_code,
+            unk_code=genotype_v2.unk_code,
+            dataset_name=genotype_v2.dataset_name,
+            cross_type=genotype_v2.cross_type,
+            mat_allele=genotype_v2.mat_allele,
+            pat_allele=genotype_v2.pat_allele,
+        )
 
         v2 = store.store_update("test_dataset", genotype_v2, "cli_user", "Small correction")
         assert v2.storage_type == "delta"

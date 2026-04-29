@@ -1,7 +1,6 @@
 """LMDB storage for versioned genotype matrices."""
 
 import json
-from dataclasses import dataclass
 from datetime import datetime
 from pathlib import Path
 from typing import Dict, List, Optional, Tuple, Union
@@ -10,58 +9,7 @@ import lmdb
 
 from .hashing import compute_matrix_hash, canonical_json
 from .delta import DeltaEncoder
-from .geno_parser import GenotypeMatrix
-
-
-@dataclass
-class MatrixVersion:
-    """Matrix version entry."""
-    dataset_id: str
-    matrix_version: int
-    matrix_hash: str
-    prev_matrix_hash: Optional[str]
-    storage_type: str
-    payload: bytes
-    timestamp: str
-    reason: str
-    author: str
-    nrows: int
-    ncols: int
-    dtype: str
-    
-    def to_dict(self) -> Dict:
-        """Convert to dict (excludes payload)."""
-        return {
-            'dataset_id': self.dataset_id,
-            'matrix_version': self.matrix_version,
-            'matrix_hash': self.matrix_hash,
-            'prev_matrix_hash': self.prev_matrix_hash,
-            'storage_type': self.storage_type,
-            'timestamp': self.timestamp,
-            'reason': self.reason,
-            'author': self.author,
-            'nrows': self.nrows,
-            'ncols': self.ncols,
-            'dtype': self.dtype,
-        }
-    
-    @classmethod
-    def from_dict(cls, data: Dict, payload: bytes) -> 'MatrixVersion':
-        """Create from dict and payload."""
-        return cls(
-            dataset_id=data['dataset_id'],
-            matrix_version=data['matrix_version'],
-            matrix_hash=data['matrix_hash'],
-            prev_matrix_hash=data.get('prev_matrix_hash'),
-            storage_type=data['storage_type'],
-            payload=payload,
-            timestamp=data['timestamp'],
-            reason=data['reason'],
-            author=data['author'],
-            nrows=data['nrows'],
-            ncols=data['ncols'],
-            dtype=data['dtype'],
-        )
+from .models import GenotypeMatrix, MatrixVersion
 
 
 class MatrixStore:

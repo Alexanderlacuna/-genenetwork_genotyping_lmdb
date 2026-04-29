@@ -10,21 +10,25 @@ from .hashing import (
 )
 
 try:
+    from .models import GenotypeMatrix, MatrixVersion
+except ImportError:
+    GenotypeMatrix = None
+    MatrixVersion = None
+
+try:
     from .delta import DeltaEncoder
 except ImportError:
     DeltaEncoder = None
 
 try:
-    from .geno_parser import GenoParser, GenotypeMatrix
+    from .geno_parser import GenoParser
 except ImportError:
     GenoParser = None
-    GenotypeMatrix = None
 
 try:
-    from .matrix_store import MatrixStore, MatrixVersion
+    from .matrix_store import MatrixStore
 except ImportError:
     MatrixStore = None
-    MatrixVersion = None
 
 __all__ = [
     'MatrixStore',

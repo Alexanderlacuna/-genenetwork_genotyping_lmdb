@@ -9,8 +9,8 @@ import shutil
 import os
 from pathlib import Path
 
-from geno_storage.matrix_store import MatrixStore, MatrixVersion
-from geno_storage.geno_parser import GenotypeMatrix
+from geno_storage.matrix_store import MatrixStore
+from geno_storage.models import GenotypeMatrix, MatrixVersion
 
 
 class TestMatrixStoreBasics:
@@ -639,8 +639,25 @@ class TestFullSnapshotMetadata:
             cross_type="hs"
         )
 
-        # Make a small change so delta is used
-        updated.matrix[2, 2] = 1
+        # Make a small change so delta is used (copy-on-write)
+        new_matrix = updated.matrix.copy()
+        new_matrix[2, 2] = 1
+        updated = GenotypeMatrix(
+            matrix=new_matrix,
+            markers=updated.markers,
+            samples=updated.samples,
+            chromosomes=updated.chromosomes,
+            cM=updated.cM,
+            Mb=updated.Mb,
+            allele_map=updated.allele_map,
+            founders=updated.founders,
+            het_code=updated.het_code,
+            unk_code=updated.unk_code,
+            dataset_name=updated.dataset_name,
+            cross_type=updated.cross_type,
+            mat_allele=updated.mat_allele,
+            pat_allele=updated.pat_allele,
+        )
 
         v2 = store.store_update("test_ds", updated, "test", "v2 delta")
         assert v2.storage_type == "delta"

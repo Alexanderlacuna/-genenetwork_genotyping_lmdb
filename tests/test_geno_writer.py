@@ -6,7 +6,8 @@ import tempfile
 import shutil
 from pathlib import Path
 
-from geno_storage.geno_parser import parse_genotype_file, GenotypeMatrix
+from geno_storage.geno_parser import parse_genotype_file
+from geno_storage.models import GenotypeMatrix
 from geno_storage.geno_writer import export_genotype_file
 from geno_storage.matrix_store import MatrixStore
 
